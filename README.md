@@ -3,7 +3,7 @@ chrome-remote-interface-python
 
 [Chrome Debugging Protocol] interface that helps to instrument Chrome (or any
 other suitable [implementation](#implementations)) by providing a simple
-abstraction of commands and notifications using a straightforward JavaScript
+abstraction of commands and notifications using a straightforward Python
 API.
 
 This module is one of the many [third-party protocol clients][3rd-party].
