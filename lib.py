@@ -1,4 +1,4 @@
-import requests, base64, json, os, websocket
+import requests, base64, json, os, types, websocket, copy
 
 
 
@@ -41,7 +41,7 @@ class Protocol:
     def _update_protocol(cls):
         result = cls._download_protocol(cls.BASE + cls.BROWSER_PROTOCOL)
         result['domains'] += cls._download_protocol(cls.BASE + cls.JS_PROTOCOL)['domains']
-        with open(cls._get_protocol_file_path(), 'wb') as f:
+        with open(cls._get_protocol_file_path(), 'w') as f:
             json.dump(result, f)
         return result
 
@@ -174,29 +174,36 @@ class callbacks:
 
 class MessagePass:
     def __init__(self):
-        rawTypeHandlers = [] # el, key, value
-        self._rawProtocol = Protocol.get_protocol()
+        rawTypeHandlers = []
+        self._rawProtocol = copy.deepcopy(Protocol.get_protocol())
         versions = self._rawProtocol['version']
         for value in self._rawProtocol['domains']:
             domain = value['domain']
             if not hasattr(self, domain):
-                setattr(self, domain, self._result_child())
+                setattr(self, domain, self._repr_class(domain))
             currentChild = getattr(self, domain)
             currentChild.__doc__ = value['description'] if 'description' in value else None
             currentChild.experimental = value['experimental'] if 'experimental' in value else False
             currentChild.dependencies = value['dependencies'] if 'dependencies' in value else []
             rawTypes = value['types'] if 'types' in value else []
             for rawType in rawTypes:
-                self._connect_raw_type(rawType, domain, rawTypeHandlers, currentChild.types, rawType['id'])
+                self._connect_raw_type(rawType, domain, rawTypeHandlers, currentChild, rawType['id'], domain+'.'+rawType['id'])
             rawCommands = value['commands'] if 'commands' in value else [] # DIR
             for rawCommand in rawCommands:
-                currentChild.methods
-                rawCommand['name']
-                rawCommand['parameters'] if 'parameters' in rawCommand else []
-                rawCommand['experimental'] if 'experimental' in rawCommand else False
-                rawCommand['redirect'] if 'redirect' in rawCommand else None 
-                rawCommand['returns'] if 'returns' in rawCommand else []
-                rawCommand['description'] if 'description' in rawCommand else None
+                method = self._make_send_method(rawCommand['name'], domain+'.'+rawCommand['name'])
+                method.parameters = {}
+                rawParameters = rawCommand['parameters'] if 'parameters' in rawCommand else []
+                for rawParameter in rawParameters:
+                    self._connect_raw_parameter_or_result(rawParameter, domain, rawTypeHandlers, method.parameters)
+                method._returns = {}
+                rawReturns = rawCommand['returns'] if 'returns' in rawCommand else []
+                for rawReturn in rawReturns:
+                    self._connect_raw_parameter_or_result(rawReturn, domain, rawTypeHandlers, method._returns)
+                method.redirect = rawCommand['redirect'] if 'redirect' in rawCommand else None
+                method.experimental = rawCommand['experimental'] if 'experimental' in rawCommand else False
+                if 'description' in rawCommand:
+                    method.__doc__ = rawCommand['description']
+                setattr(currentChild, self._pythonic_method_name(rawCommand['name']), method)
             rawEvents = value['events'] if 'events' in value else [] # DOC?
             for rawEvent in rawEvents:
                 rawEvent['name']
@@ -204,31 +211,31 @@ class MessagePass:
                 rawEvent['description'] if 'description' in rawEvent else None
                 rawEvent['parameters'] if 'parameters' in rawEvent else []
         while len(rawTypeHandlers) > 0:
-            for parent, key, rawType, connect_funcion, domain in rawTypeHandlers:
-                self._connect_raw_type(rawType, domain, rawTypeHandlers, parent, key, connect_funcion)
+            for parent, key, rawType, connectFuncion, domain, classRepr, callbacks in rawTypeHandlers:
+                self._connect_raw_type(rawType, domain, rawTypeHandlers, parent, key, classRepr, connectFuncion, callbacks)
 
-    def _connect_raw_type(self, rawType, domain, rawTypeHandlers, parent, key, connect_funcion=setattr):
-        successRemoveTuple = parent, key, rawType, connect_funcion, domain
+    def _connect_raw_type(self, rawType, domain, rawTypeHandlers, parent, key, classRepr, connectFuncion=setattr, callback=None):
+        successRemoveTuple = parent, key, rawType, connectFuncion, domain, classRepr, callback
         if '$ref' in rawType:
             ref = rawType['$ref']
             try:
                 var1, var2 = ref.split('.', 1)
-                print(111111, var1, var2)
             except ValueError:
                 var1 = domain
                 var2 = ref
-                print(222222, var1, var2)
             try:
-                connect_funcion(parent, key, getattr(getattr(self, var1).types, var2))
+                connectFuncion(parent, key, getattr(getattr(self, var1), var2))
                 if successRemoveTuple in rawTypeHandlers:
                     rawTypeHandlers.remove(successRemoveTuple)
+                if callback is not None:
+                    callback()
             except AttributeError:
                 if successRemoveTuple not in rawTypeHandlers:
                     rawTypeHandlers.append(successRemoveTuple)
         elif 'type' in rawType:
             t = rawType['type']
             if t == 'array':
-                class coolType(list):
+                class coolType(list, metaclass=self._CustomClassRepr):
                     def __init__(slf, values):
                         if slf.minItems is not None and len(values) < slf.minItems:
                             raise ValueError('Min items is lower than')
@@ -241,71 +248,148 @@ class MessagePass:
                             for value in values:
                                 resultingValues.append(slf.itemsType(value))
                             super().__init__(resultingValues)
+                coolType._classRepr = classRepr
                 coolType.maxItems = rawType['maxItems'] if 'maxItems' in rawType else None
                 coolType.minItems = rawType['minItems'] if 'minItems' in rawType else None
                 rawItems = rawType['items'] if 'items' in rawType else None
                 if rawItems is None:
                     coolType.itemsType = None
                 else:
-                    self._connect_raw_type(rawItems, domain, rawTypeHandlers, coolType, 'itemsType')
+                    self._connect_raw_type(rawItems, domain, rawTypeHandlers, coolType, 'itemsType', None)
             elif t == 'object':
-                class coolType:
+                class coolType(metaclass=self._CustomClassRepr):
                     def __init__(slf, values):
-                        toAdd = set(slf.propertyNames.keys())
+                        toAdd = set(slf._propertyNameToType.keys())
                         for key in values:
-                            if key not in slf.propertyNames:
+                            if key not in slf._propertyNameToType:
                                 raise ValueError('there is no such property: {0}'.format(key))
                             else:
-                                setattr(slf, key, slf.propertyNames[key](values[key]))
+                                setattr(slf, key, slf._propertyNameToType[key](values[key]))
                                 toAdd.remove(key)
                         if len(toAdd) > 0:
                             raise ValueError('Not enough parameters: {0}'.format(', '.join(toAdd)))
+                coolType._classRepr = classRepr
                 rawProperties = rawType['properties'] if 'properties' in rawType else []
-                coolType.propertyNames = {}
+                coolType._propertyNameToType = {}
                 for rawProperty in rawProperties:
-                    self._connect_raw_type(rawProperty, domain, rawTypeHandlers, coolType.propertyNames, rawProperty['name'], dict.__setitem__.__call__)
+                    self._connect_raw_type(rawProperty, domain, rawTypeHandlers, coolType._propertyNameToType, rawProperty['name'], None, dict.__setitem__.__call__)
+                coolType.propertyNames = set(coolType._propertyNameToType.keys())
             elif t == 'string':
                 enum = rawType['enum'] if 'enum' in rawType else None
                 if enum is None:
-                    coolType = self._dummy_cool_type(str)
+                    coolType = self._dummy_cool_type(classRepr, str)
                 else:
-                    class coolType(str):
-                        def __init__(self, value):
-                            if value not in self.enum:
-                                raise ValueError('string must be one of the following: {0}'.format(', '.join(self.enum)))
-                            super().__init__(value)
+                    class coolType(str, metaclass=self._CustomClassRepr):
+                        def __new__(cls, value):
+                            if value not in cls.enum:
+                                raise ValueError('string must be one of the following: {0}'.format(', '.join(cls.enum)))
+                            return value
                     coolType.enum = enum
+                    coolType._classRepr = classRepr
             elif t in ['integer', 'number', 'any', 'boolean']:
-                coolType = self._dummy_cool_type({'integer': int, 'number': float, 'boolean': bool, 'any': None}[t])
+                coolType = self._dummy_cool_type(classRepr, {'integer': int, 'number': float, 'boolean': bool, 'any': None}[t])
             else:
                 raise ValueError('Unknown type: {0}'.format(t))
             if 'description' in rawType:
                 coolType.__doc__ = rawType['description']
             coolType.experimental = rawType['experimental'] if 'experimental' in rawType else None
-            connect_funcion(parent, key, coolType)
+            coolType.deprecated = rawType['deprecated'] if 'deprecated' in rawType else False
+            connectFuncion(parent, key, coolType)
             if successRemoveTuple in rawTypeHandlers:
                 rawTypeHandlers.remove(successRemoveTuple)
+            if callback is not None:
+                callback()
         else:
             raise ValueError('There is no type or $ref {0}'.format(rawType))
 
-    def _dummy_cool_type(self, t=None):
-        class coolType:
+    def _connect_raw_parameter_or_result(self, rawValue, domain, rawTypeHandlers, parent):
+        value = self._empty_class()
+        name = rawValue['name']
+        del rawValue['name']
+        if 'optional' in rawValue:
+            optionalValue = rawValue['optional']
+            del rawValue['optional']
+        else:
+            optionalValue = False
+        def callback():
+            parent[name]._optional = optionalValue
+        self._connect_raw_type(rawValue, domain, rawTypeHandlers, parent, name, None, dict.__setitem__.__call__, callback)
+
+    def _make_send_method(self, originalName, classRepr):
+        class result():
+            def __call__(self, **kwargs):
+                for key, value in self.parameters.items():
+                    if not value._optional and key not in kwargs:
+                        raise TypeError('Required argument \'{0}\' not found'.format(key))
+                for key, arg in kwargs.items():
+                    param = self.parameters[key]
+                    potentialClass = param._type if hasattr(param, '_type') else param
+                    valid = (arg.__class__ == potentialClass) or (potentialClass == float and arg.__class__ == int)
+                    if not valid:
+                        raise ValueError('Param \'{0}\' must be {1}'.format(key, potentialClass))
+                print('call:', self._originalName, kwargs)
+            def __repr__(self):
+                return self._classRepr
+        result._originalName = originalName
+        result._classRepr = classRepr
+        return result()
+
+    def _pythonic_method_name(self, oldName):
+        oldOne = list(oldName)
+        newOne = []
+        previousWasLow = True
+        previousWasUnderscore = False
+        for i in reversed(range(len(oldOne))):
+            c = oldOne[i]
+            if c.isupper():
+                if previousWasLow:
+                    newOne.append('_'+c.lower())
+                    previousWasUnderscore = True
+                else:
+                    newOne.append(c.lower())
+                    previousWasUnderscore = False
+                previousWasLow = False
+            else:
+                if previousWasLow:
+                    newOne.append(c)
+                else:
+                    if previousWasUnderscore:
+                        newOne.append(c)
+                    else:
+                        newOne.append(c+'_')
+                previousWasUnderscore = False
+                previousWasLow = True
+        return ''.join(reversed(newOne))
+
+    def _dummy_cool_type(self, classRepr, t):
+        class coolType(metaclass=self._CustomClassRepr):
             def __new__(cls, obj):
+                if cls._type == float and type(obj) == int:
+                    obj = float(obj)
                 if cls._type is not None and cls._type != type(obj):
                     raise ValueError('Type must be {0}, not {1}'.format(cls._type, type(obj)))
                 return obj
         coolType._type = t
+        coolType._classRepr = classRepr
         return coolType
+
+    class _CustomClassRepr(type):
+        def __repr__(self):
+            if self._classRepr is not None:
+                return self._classRepr
+            else:
+                super().__repr__()
 
     def _empty_class(self):
         class a: pass
         return a
 
-    def _result_child(self):
-        class a:
-            class types: pass
-            class methods: pass
+    def _repr_class(self, classRepr):
+        class a(metaclass=self._CustomClassRepr): pass
+        a._classRepr = classRepr
         return a
+
+
 
 
 
