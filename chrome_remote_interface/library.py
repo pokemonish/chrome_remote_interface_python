@@ -390,6 +390,16 @@ class API:
         a._class_repr = class_repr
         return a
 
+class helpers:
+    '''
+    I put here some helping tools.
+    '''
+    def unpack_response_body(packed):
+        result = packed['body']
+        if packed['base64Encoded']:
+            result = base64.b64decode(result)
+        return result
+
 class TabsSync:
     '''
     These tabs can be used to work synchronously from terminal
@@ -399,6 +409,9 @@ class TabsSync:
         self._port = port
         self._tabs = []
         self._callbacks = callbacks
+
+    FailReponse = FailReponse
+    helpers = helpers
 
     def __repr__(self):
         return '{0}({1}:{2})'.format(type(self).__name__, self._host, self._port)
@@ -540,6 +553,9 @@ class Tabs:
         self._tabs = []
         self._callbacks = callbacks
         self._terminate_lock = asyncio.Lock()
+
+    FailReponse = FailReponse
+    helpers = helpers
 
     def __repr__(self):
         return '{0}({1}:{2})'.format(type(self).__name__, self._host, self._port)
@@ -687,18 +703,6 @@ class SocketClient(API):
         if self._tabs is not None:
             self._tabs.remove(self)
             self._tabs = None
-
-class helpers:
-    '''
-    I put here some helping tools.
-    '''
-    def unpack_response_body(packed):
-        result = packed['body']
-        if packed['base64Encoded']:
-            result = base64.b64decode(result)
-        return result
-
-
 
 
 

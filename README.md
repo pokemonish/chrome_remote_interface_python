@@ -10,29 +10,47 @@ This module is one of the many [third-party protocol clients][3rd-party].
 
 [3rd-party]: https://developer.chrome.com/devtools/docs/debugging-clients#chrome-remote-interface
 
-For now description is just a copy-paste of [chrome-remote-interface](https://github.com/cyrus-and/chrome-remote-interface).
-
 Sample API usage
 ----------------
 
 The following snippet loads `https://github.com` and dumps every request made:
 
 ```python
-Nope yet
+import asyncio
+import chrome_remote_interface
+
+if __name__ == '__main__':
+    class callbacks:
+        async def start(tabs):
+            tab = await tabs.add()
+            await tab.Page.enable()
+            await tab.Network.enable()
+            await tab.Page.navigate(url='http://github.com')
+        async def network__response_received(tabs, tab, requestId, **kwargs):
+            try:
+                body = tabs.helpers.unpack_response_body(await tab.Network.get_response_body(requestId=requestId))
+                print('body:', len(body))
+            except tabs.FailReponse as e:
+                print('fail:', e)
+        async def any(tabs, tab, callback_name, parameters):
+            pass
+            # print('Unknown event fired', callback_name)
+
+    asyncio.get_event_loop().run_until_complete(chrome_remote_interface.Tabs.run('localhost', 9222, callbacks))
 ```
 
 Installation
 ------------
 
-    maybe pip install one day
+```bash
+git clone https://github.com/wasiher/chrome-remote-interface-python.git
+python setup.py install
+```
 
 
 Implementations
----------------
 
-Maybe I will understand later
-
-Setup
+Setup (all description from [here](https://github.com/cyrus-and/chrome-remote-interface))
 -----
 
 An instance of either Chrome itself or another implementation needs to be
@@ -104,31 +122,15 @@ Install and run the [iOS WebKit Debug Proxy][iwdp].
 Chrome Debugging Protocol versions
 ----------------------------------
 
-`chrome-remote-interface` uses the [local version] of the protocol descriptor by
-default. This file is manually updated from time to time using
-`scripts/update-protocol.sh` and pushed to this repository.
+You can update it using this way (It will be downloaded automatically first time)
 
-This behavior can be changed by setting the `remote` option to `true`
-upon [connection](#cdpoptions-callback), in which case the remote instance is
-*asked* to provide its own protocol descriptor.
+```python
+import chrome_remote_interface
+chrome_remote_interface.Protocol.update_protocol()
+```
 
-Currently Chrome is not able to do that (see [#10]), so the protocol descriptor
-is fetched from the proper [source repository].
+Protocols are loaded from [here](https://chromium.googlesource.com/chromium/src/+/master/third_party/WebKit/Source/core/inspector/browser_protocol.json) and [here](https://chromium.googlesource.com/chromium/src/+/master/third_party/WebKit/Source/core/inspector/browser_protocol.json)
 
-To override the above behavior there are basically three options:
-
-- pass a custom protocol descriptor upon [connection](#cdpoptions-callback)
-  (`protocol` option);
-
-- use the *raw* version of the [commands](#clientsendmethod-params-callback)
-  and [events](#event-domainmethod) interface;
-
-- update the local copy with `scripts/update-protocol.sh` (not present when
-  fetched with `npm install`).
-
-[local version]: lib/protocol.json
-[#10]: https://github.com/cyrus-and/chrome-remote-interface/issues/10
-[source repository]: https://chromium.googlesource.com/chromium/src/+/master/third_party/WebKit/Source/
 
 Contributors
 ------------
