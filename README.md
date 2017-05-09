@@ -31,9 +31,12 @@ if __name__ == '__main__':
         async def network__response_received(tabs, tab, requestId, **kwargs):
             try:
                 body = tabs.helpers.unpack_response_body(await tab.Network.get_response_body(requestId=requestId))
-                print('body:', len(body))
+                print('body length:', len(body))
             except tabs.FailReponse as e:
                 print('fail:', e)
+        async def network__loading_finished(tabs, tab, **kwargs):
+            print('finish')
+            tabs.terminate()
         async def any(tabs, tab, callback_name, parameters):
             pass
             # print('Unknown event fired', callback_name)
