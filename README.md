@@ -49,9 +49,6 @@ git clone https://github.com/wasiher/chrome-remote-interface-python.git
 python3 setup.py install
 ```
 
-
-Implementations
-
 Setup (all description from [here](https://github.com/cyrus-and/chrome-remote-interface))
 -----
 
