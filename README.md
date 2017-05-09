@@ -15,7 +15,7 @@ It is only for Python 3.5 for now
 Sample API usage
 ----------------
 
-The following snippet loads `https://github.com` and dumps every request made:
+The following snippet loads `https://github.com` and prints every response body length:
 
 ```python
 import asyncio
@@ -43,6 +43,17 @@ if __name__ == '__main__':
 
     asyncio.get_event_loop().run_until_complete(chrome_remote_interface.Tabs.run('localhost', 9222, callbacks))
 ```
+
+We use 3 types of callbacks here:
+* ```start(tabs)``` - fired on the start.
+* ```network__response_received(tabs, tab, **kwargs)``` - callback for chrome [Network.responseReceived](https://chromedevtools.github.io/devtools-protocol/tot/Network/#event-responseReceived) event.
+* ```any(tabs, tab, callback_name, parameters)``` - fallback which fired when there is no callback found.
+
+We can add tab using method ```tabs.add()``` and remove it with ```tabs[n].remove()``` or ```tab.remove()```.
+
+Each method can throw ```FailReponse``` exception when something goes wrong.
+
+You can terminate your programm by calling ```tabs.terminate()```.
 
 Installation
 ------------
