@@ -8,6 +8,8 @@ API.
 
 This module is one of the many [third-party protocol clients][3rd-party].
 
+It is only for Python 3.5 for now
+
 [3rd-party]: https://developer.chrome.com/devtools/docs/debugging-clients#chrome-remote-interface
 
 Sample API usage
@@ -44,7 +46,7 @@ Installation
 
 ```bash
 git clone https://github.com/wasiher/chrome-remote-interface-python.git
-python setup.py install
+python3 setup.py install
 ```
 
 
