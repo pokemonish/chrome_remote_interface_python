@@ -14,7 +14,7 @@ if __name__ == '__main__':
                 print('body length:', len(body))
             except tabs.FailReponse as e:
                 print('fail:', e)
-        async def network__loading_finished(tabs, tab, **kwargs):
+        async def page__frame_stopped_loading(tabs, tab, **kwargs):
             print('finish')
             tabs.terminate()
         async def any(tabs, tab, callback_name, parameters):
