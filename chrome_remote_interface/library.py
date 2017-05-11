@@ -180,7 +180,7 @@ class API:
                         else:
                             resulting_values = []
                             for value in values:
-                                resulting_values.append(slf.type(value))
+                                resulting_values.append(self._float_hook(slf.type(value)))
                             super().__init__(resulting_values)
                 CoolType._class_repr = class_repr if class_repr is not None else list.__name__
                 CoolType._type = list
@@ -206,7 +206,7 @@ class API:
                                 if key not in slf.property_names:
                                     raise ValueError('there is no such property: {0}'.format(key))
                                 else:
-                                    slf[key] = slf.property_names[key].type(values[key])
+                                    slf[key] = self._float_hook(slf.property_names[key].type(values[key]))
                                     to_add.remove(key)
                             to_remove_from_add = set()
                             for key in to_add:
@@ -308,6 +308,14 @@ class API:
         except KeyError:
             return values, callback_name
 
+    def _float_hook(self, value):
+        # Some whalues should be integers in my opinion (not numbers), but they are (response code for example)
+        # So we will cast int like floats to int
+        if isinstance(value, float) and int(value) == value:
+            return int(value)
+        else:
+            return value
+
     def _unpack_response(self, method_name, values):
         try:
             returns = self._method_name_to_method[method_name].returns
@@ -360,7 +368,7 @@ class API:
                     obj = float(obj)
                 if cls._type is not None and cls._type != type(obj):
                     raise ValueError('Type must be {0}, not {1}'.format(cls._type, type(obj)))
-                return obj
+                return self._float_hook(obj)
         CoolType._type = t
         CoolType._class_repr = class_repr
         return CoolType
