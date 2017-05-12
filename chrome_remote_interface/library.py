@@ -1,4 +1,4 @@
-import requests, base64, json, os, types, copy, collections, traceback
+import requests, base64, json, os, types, copy, collections, traceback, concurrent
 import base64
 
 try:
@@ -155,7 +155,6 @@ class API:
                         raw_type_handlers.remove(success_remove_tuple)
                     if callback is not None:
                         callback()
-                    # print('kolobok', key, access_function(parent, key).optional)
                     obj = access_function(parent, key)
                     if 'optional' in raw_type:
                         obj.optional = raw_type['optional']
@@ -633,6 +632,7 @@ class SocketClient(API):
         self._tabs = tabs
         self._method_responses = {}
         self._recv_data_lock = {}
+        self._pending_tasks = []
 
     @property
     def ws_url(self):
@@ -651,14 +651,14 @@ class SocketClient(API):
                         self._method_responses[resp['id']] = resp
                         self._recv_data_lock[resp['id']].release()
                     elif 'method' in resp:
-                        asyncio.ensure_future(self._handle_event(resp['method'], resp['params']))
+                        self._pending_tasks.append(asyncio.ensure_future(self._handle_event(resp['method'], resp['params'])))
                     else:
                         raise RuntimeError('Unknown data came: {0}'.format(resp))
-            except websockets.ConnectionClosed:
+            except (websockets.ConnectionClosed, concurrent.futures.CancelledError):
                 pass
             except Exception as e:
                 traceback.print_exc()
-        asyncio.ensure_future(loop())
+        self._pending_tasks.append(asyncio.ensure_future(loop()))
         return self
 
     async def __aexit__(self, type, value, traceback):
@@ -695,7 +695,7 @@ class SocketClient(API):
                     await callbacks.any(self._tabs, self, callback_name, parameters)
                 else:
                     pass
-        except websockets.ConnectionClosed:
+        except (websockets.ConnectionClosed, concurrent.futures.CancelledError):
             pass
         except Exception as e:
             traceback.print_exc()
@@ -703,6 +703,8 @@ class SocketClient(API):
     async def close(self):
         if self._soc is not None:
             await self._soc.close()
+            for task in self._pending_tasks:
+                task.cancel()
             self._soc = None
             requests.get('http://{0}:{1}/json/close/{2}'.format(self._host, self._port, self._tab_info['id']))
 
