@@ -423,6 +423,18 @@ class TabsSync:
     def __repr__(self):
         return '{0}({1}:{2})'.format(type(self).__name__, self._host, self._port)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+    def close(self):
+        for tab in self._tabs:
+            tab.close()
+        if hasattr(self._callbacks, 'close'):
+            self._callbacks.close(self)
+
     @property
     def host(self):
         return self._host
@@ -541,6 +553,8 @@ class SocketClientSync(API):
     def close(self):
         if self._soc is not None:
             self._soc.close()
+            if self._tabs is not None and hasattr(self._tabs._callbacks, 'tab_close'):
+                self._tabs._callbacks.tab_close(self._tabs, self)
             self._soc = None
             requests.get('http://{0}:{1}/json/close/{2}'.format(self._host, self._port, self._tab_info['id']))
 
@@ -572,8 +586,9 @@ class Tabs:
         return self
 
     async def __aexit__(self, type, value, traceback):
-        for tab in self._tabs:
-            await tab.close()
+        await asyncio.wait([tab.close() for tab in self._tabs])
+        if hasattr(self._callbacks, 'close'):
+            await self._callbacks.close(self)
 
     @property
     def host(self):
@@ -703,6 +718,8 @@ class SocketClient(API):
     async def close(self):
         if self._soc is not None:
             await self._soc.close()
+            if self._tabs is not None and hasattr(self._tabs._callbacks, 'tab_close'):
+                await self._tabs._callbacks.tab_close(self._tabs, self)
             for task in self._pending_tasks:
                 task.cancel()
             self._soc = None
