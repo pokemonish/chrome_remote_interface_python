@@ -407,15 +407,23 @@ class helpers:
             result = base64.b64decode(result)
         return result
 
+class default_callbacks_sync:
+    '''
+    I am too lazy to do something here
+    '''
+
 class TabsSync:
     '''
     These tabs can be used to work synchronously from terminal
     '''
-    def __init__(self, host, port, callbacks=None):
+    def __init__(self, host, port, callbacks=None, excluded_default_callbacks=[]):
         self._host = host
         self._port = port
         self._tabs = []
-        self._callbacks = callbacks
+        self._callbacks_collection = [] if callbacks is None else [callbacks]
+        for key in dir(default_callbacks_sync):
+            if not key.startswith('_') and key not in excluded_default_callbacks:
+                self._callbacks_collection.append(default_callbacks_sync[key])
 
     FailReponse = FailReponse
     helpers = helpers
@@ -432,8 +440,9 @@ class TabsSync:
     def close(self):
         for tab in self._tabs:
             tab.close()
-        if hasattr(self._callbacks, 'close'):
-            self._callbacks.close(self)
+        for callbacks in self._callbacks_collection:
+            if hasattr(callbacks, 'close'):
+                callbacks.close(self)
 
     @property
     def host(self):
@@ -461,7 +470,7 @@ class TabsSync:
             pos = None
             for i in range(len(self._tabs)):
                 if self._tabs[i] == value:
-                    pos = tab_client
+                    pos = i
             if pos is None:
                 raise ValueError('Tab not found')
         self._tabs[pos].close()
@@ -521,14 +530,15 @@ class SocketClientSync(API):
 
     def _handle_event(self, method, params):
         parameters, callback_name = self._unpack_event(method, params)
-        if self._tabs is not None and self._tabs._callbacks is not None:
-            callbacks = self._tabs._callbacks
-            if hasattr(callbacks, callback_name):
-                getattr(callbacks, callback_name)(**parameters)
-            elif hasattr(callbacks, 'any'):
-                callbacks.any(parameters)
-            else:
-                pass
+        for callbacks in self._tabs._callbacks_collection:
+            if self._tabs is not None and callbacks is not None:
+                callbacks = callbacks
+                if hasattr(callbacks, callback_name):
+                    getattr(callbacks, callback_name)(**parameters)
+                elif hasattr(callbacks, 'any'):
+                    callbacks.any(parameters)
+                else:
+                    pass
 
     def recv(self):
         n = 0
@@ -553,8 +563,9 @@ class SocketClientSync(API):
     def close(self):
         if self._soc is not None:
             self._soc.close()
-            if self._tabs is not None and hasattr(self._tabs._callbacks, 'tab_close'):
-                self._tabs._callbacks.tab_close(self._tabs, self)
+            for callbacks in self._tabs._callbacks_collection:
+                if self._tabs is not None and hasattr(callbacks, 'tab_close'):
+                    callbacks.tab_close(self._tabs, self)
             self._soc = None
             requests.get('http://{0}:{1}/json/close/{2}'.format(self._host, self._port, self._tab_info['id']))
 
@@ -564,16 +575,22 @@ class SocketClientSync(API):
             self._tabs.remove(self)
             self._tabs = None
 
+class default_callbacks:
+    pass
+
 class Tabs:
     '''
     Tabs here
     '''
-    def __init__(self, host, port, callbacks=None):
+    def __init__(self, host, port, callbacks=None, excluded_default_callbacks=[]):
         self._host = host
         self._port = port
         self._tabs = []
-        self._callbacks = callbacks
         self._terminate_lock = asyncio.Lock()
+        self._callbacks_collection = [] if callbacks is None else [callbacks]
+        for key in dir(default_callbacks):
+            if not key.startswith('_') and key not in excluded_default_callbacks:
+                self._callbacks_collection.append(default_callbacks[key])
 
     FailReponse = FailReponse
     helpers = helpers
@@ -587,8 +604,9 @@ class Tabs:
 
     async def __aexit__(self, type, value, traceback):
         await asyncio.wait([tab.close() for tab in self._tabs])
-        if hasattr(self._callbacks, 'close'):
-            await self._callbacks.close(self)
+        for callbacks in self._callbacks_collection:
+            if hasattr(callbacks, 'close'):
+                await callbacks.close(self)
 
     @property
     def host(self):
@@ -702,14 +720,14 @@ class SocketClient(API):
     async def _handle_event(self, method, params):
         try:
             parameters, callback_name = self._unpack_event(method, params)
-            if self._tabs is not None and self._tabs._callbacks is not None:
-                callbacks = self._tabs._callbacks
-                if hasattr(callbacks, callback_name):
-                    await getattr(callbacks, callback_name)(self._tabs, self, **parameters)
-                elif hasattr(callbacks, 'any'):
-                    await callbacks.any(self._tabs, self, callback_name, parameters)
-                else:
-                    pass
+            for callbacks in self._tabs._callbacks_collection:
+                if self._tabs is not None and callbacks is not None:
+                    if hasattr(callbacks, callback_name):
+                        await getattr(callbacks, callback_name)(self._tabs, self, **parameters)
+                    elif hasattr(callbacks, 'any'):
+                        await callbacks.any(self._tabs, self, callback_name, parameters)
+                    else:
+                        pass
         except (websockets.ConnectionClosed, concurrent.futures.CancelledError):
             pass
         except Exception as e:
@@ -718,8 +736,9 @@ class SocketClient(API):
     async def close(self):
         if self._soc is not None:
             await self._soc.close()
-            if self._tabs is not None and hasattr(self._tabs._callbacks, 'tab_close'):
-                await self._tabs._callbacks.tab_close(self._tabs, self)
+            for callbacks in self._tabs._callbacks_collection:
+                if self._tabs is not None and hasattr(callbacks, 'tab_close'):
+                    await callbacks.tab_close(self._tabs, self)
             for task in self._pending_tasks:
                 task.cancel()
             self._soc = None
