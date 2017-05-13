@@ -423,7 +423,7 @@ class TabsSync:
         self._callbacks_collection = [] if callbacks is None else [callbacks]
         for key in dir(default_callbacks_sync):
             if not key.startswith('_') and key not in excluded_default_callbacks:
-                self._callbacks_collection.append(default_callbacks_sync[key])
+                self._callbacks_collection.append(getattr(default_callbacks_sync, key))
 
     FailReponse = FailReponse
     helpers = helpers
@@ -576,7 +576,9 @@ class SocketClientSync(API):
             self._tabs = None
 
 class default_callbacks:
-    pass
+    class new_tagets:
+        def start(tabs):
+            print('HI :)')
 
 class Tabs:
     '''
@@ -590,7 +592,7 @@ class Tabs:
         self._callbacks_collection = [] if callbacks is None else [callbacks]
         for key in dir(default_callbacks):
             if not key.startswith('_') and key not in excluded_default_callbacks:
-                self._callbacks_collection.append(default_callbacks[key])
+                self._callbacks_collection.append(getattr(default_callbacks, key))
 
     FailReponse = FailReponse
     helpers = helpers
