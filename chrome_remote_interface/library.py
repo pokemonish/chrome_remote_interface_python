@@ -410,6 +410,7 @@ class helpers:
 class default_callbacks_sync:
     '''
     I am too lazy to do something here
+    Watch async default_callbacks for description
     '''
 
 class TabsSync:
@@ -457,6 +458,9 @@ class TabsSync:
     def add(self):
         tab = SocketClientSync(self._host, self._port, self)
         self._tabs.append(tab)
+        for callbacks in self._callbacks_collection:
+            if hasattr(callbacks, 'tab_start'):
+                callbacks.tab_start(self, tab)
         return tab
 
     def __getitem__(self, pos):
@@ -578,11 +582,23 @@ class SocketClientSync(API):
             self._tabs = None
 
 class default_callbacks:
+    '''
+    Default callbacks that probably should be
+    May be removed by excluded_default_callbacks in Tabs constructor
+    '''
     class targets:
-        async def start(tabs):
-            print(1)
+        '''
+        Used to remove new tabs which opened accidentally
+        '''
+        async def tab_start(tabs, tab):
+            pass
+            # await tab.Target.set_discover_targets(discover=True)
+        async def any(tabs, tab, callback_name, parameters):
+            if callback_name.startswith('target'):
+                pass
+                # print(callback_name)
         async def close(tabs):
-            print(5)
+            pass
 
 class Tabs:
     '''
@@ -608,7 +624,8 @@ class Tabs:
         await self._terminate_lock.acquire()
         coroutines = []
         for callbacks in self._callbacks_collection:
-            coroutines.append(callbacks.start(self))
+            if hasattr(callbacks, 'start'):
+                coroutines.append(callbacks.start(self))
         if len(coroutines) > 0:
             await asyncio.wait(coroutines)
         return self
@@ -633,6 +650,12 @@ class Tabs:
     async def add(self):
         tab = await SocketClient(self._host, self._port, self).__aenter__()
         self._tabs.append(tab)
+        coroutines = []
+        for callbacks in self._callbacks_collection:
+            if hasattr(callbacks, 'tab_start'):
+                coroutines.append(callbacks.tab_start(self, tab))
+        if len(coroutines) > 0:
+            await asyncio.wait(coroutines)
         return tab
 
     def __getitem__(self, pos):
