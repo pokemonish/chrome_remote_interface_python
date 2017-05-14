@@ -277,7 +277,22 @@ class API:
 
     def _make_send_method(self, original_name, class_repr):
         class result():
-            def __call__(slf, **kwargs):
+            def __call__(slf, *args, **kwargs):
+                if len(args) == 0:
+                    pass
+                elif len(args) == 1:
+                    positionalArgumentFound = False
+                    for key, value in slf.parameters.items():
+                        if not value.optional:
+                            if positionalArgumentFound:
+                                raise TypeError('This object access more than one non optional value')
+                            if key not in kwargs:
+                                kwargs[key] = args[0]
+                                positionalArgumentFound
+                            else:
+                                raise TypeError('You can\'t use positional argument if it is already set by key')
+                else:
+                    raise TypeError('You can pass maximum 1 positional argument ({0} given)'.format(len(args)))
                 for key, value in slf.parameters.items():
                     if not value.optional and key not in kwargs:
                         raise TypeError('Required argument \'{0}\' not found'.format(key))
