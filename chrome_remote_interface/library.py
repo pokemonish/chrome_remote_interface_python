@@ -435,13 +435,17 @@ class TabsSync:
     def __init__(self, host, port, callbacks=None, excluded_default_callbacks=[]):
         self._host = host
         self._port = port
-        self._tabs = []
+        self._tabs = {}
         self._callbacks_collection = [] if callbacks is None else [callbacks]
         for key in dir(default_callbacks_sync):
             if not key.startswith('_') and key not in excluded_default_callbacks:
                 self._callbacks_collection.append(getattr(default_callbacks_sync, key))
         for callbacks in self._callbacks_collection:
             callbacks.start(self)
+        self._initial_tabs = []
+        initial_list = json.loads(requests.get('http://{0}:{1}/json/list/'.format(self._host, self._port)).text)
+        for el in initial_list:
+            self._initial_tabs.append(el['id'])
 
     FailReponse = FailReponse
     helpers = helpers
@@ -472,39 +476,57 @@ class TabsSync:
 
     def add(self):
         tab = SocketClientSync(self._host, self._port, self)
-        self._tabs.append(tab)
+        self._tabs[tab.id] = tab
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'tab_start'):
                 callbacks.tab_start(self, tab)
         return tab
 
-    def __getitem__(self, pos):
-        if isinstance(pos, int):
-            return self._tabs[pos]
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            if self._tabs[key] is None:
+                raise KeyError(key)
+            return self._tabs[key]
         else:
-            raise TypeError('{0} indices must be integers'.format(type(self).__name__))
+            raise TypeError('{0} key must be str'.format(type(self).__name__))
+
+    def __contains__(self, key):
+        if isinstance(key, str):
+            return key in self._tabs
+        else:
+            raise TypeError('{0} key must be str'.format(type(self).__name__))
 
     def remove(self, value):
-        if isinstance(value, int):
-            pos = value
+        if isinstance(value, str):
+            key = value
         else:
-            pos = None
-            for i in range(len(self._tabs)):
-                if self._tabs[i] == value:
-                    pos = i
-            if pos is None:
+            key = None
+            for k in self._tabs:
+                if self._tabs[k] == value:
+                    key = k
+            if key is None:
                 raise ValueError('Tab not found')
-        self._tabs[pos].close()
+        self._tabs[key].close()
 
 class SocketClientSync(API): 
     '''
     These tab client can be used to work synchronously from terminal
     '''
-    def __init__(self, host, port, tabs=None):
+    def __init__(self, host, port, tabs=None, tab_id=None):
         super().__init__()
         self._host = host
         self._port = port
-        self._tab_info = json.loads(requests.get('http://{0}:{1}/json/new/'.format(self._host, self._port)).text)
+        if tab_id is None:
+            self._tab_info = json.loads(requests.get('http://{0}:{1}/json/new/'.format(self._host, self._port)).text)
+        else:
+            tab_infos = json.loads(requests.get('http://{0}:{1}/json/list/'.format(self._host, self._port)).text)
+            self._tab_info = None
+            for tab_info in tab_infos:
+                if tab_info['id'] == tab_id:
+                    self._tab_info = tab_info
+            if self._tab_info is None:
+                raise ValueError('Tab {0} not found'.format(tab_id))
+        self._id = self._tab_info['id']
         self._ws_url = self._tab_info['webSocketDebuggerUrl']
         self._soc = websocket.create_connection(self._ws_url)
         self._i = 0
@@ -513,6 +535,10 @@ class SocketClientSync(API):
     @property
     def ws_url(self):
         return self._ws_url
+
+    @property
+    def id(self):
+        return self._id
 
     def __repr__(self):
         return 'SocketClientSync("{0}")'.format(self._ws_url)
@@ -593,7 +619,7 @@ class SocketClientSync(API):
     def remove(self):
         self.close()
         if self._tabs is not None:
-            self._tabs.remove(self)
+            del self._tabs[self.id]
             self._tabs = None
 
 class default_callbacks:
@@ -603,15 +629,22 @@ class default_callbacks:
     '''
     class targets:
         '''
-        Used to remove new tabs which opened accidentally
+        Used to handle tabs which opened without our wish
         '''
         async def tab_start(tabs, tab):
-            pass
-            # await tab.Target.set_discover_targets(discover=True)
-        async def any(tabs, tab, callback_name, parameters):
-            if callback_name.startswith('target'):
-                pass
-                # print(callback_name)
+            await tab.Target.set_discover_targets(True)
+        async def target__target_created(tabs, tab, targetInfo, **kwargs):
+            if targetInfo.type != 'browser' and targetInfo.targetId not in tabs._initial_tabs and targetInfo.targetId not in tabs._tabs:
+                tab = SocketClient(tabs._host, tabs._port, tabs, targetInfo.targetId)
+                tabs._tabs[tab.id] = tab
+                await tab.__aenter__()
+                coroutines = []
+                for callbacks in tabs._callbacks_collection:
+                    if hasattr(callbacks, 'tab_start'):
+                        coroutines.append(callbacks.tab_start(tabs, tab))
+                if len(coroutines) > 0:
+                    await asyncio.wait(coroutines)
+                return tab
         async def close(tabs):
             pass
 
@@ -622,12 +655,16 @@ class Tabs:
     def __init__(self, host, port, callbacks=None, excluded_default_callbacks=[]):
         self._host = host
         self._port = port
-        self._tabs = []
+        self._tabs = {}
         self._terminate_lock = asyncio.Lock()
         self._callbacks_collection = [] if callbacks is None else [callbacks]
         for key in dir(default_callbacks):
             if not key.startswith('_') and key not in excluded_default_callbacks:
                 self._callbacks_collection.append(getattr(default_callbacks, key))
+        self._initial_tabs = []
+        initial_list = json.loads(requests.get('http://{0}:{1}/json/list/'.format(self._host, self._port)).text)
+        for el in initial_list:
+            self._initial_tabs.append(el['id'])
 
     FailReponse = FailReponse
     helpers = helpers
@@ -646,7 +683,7 @@ class Tabs:
         return self
 
     async def __aexit__(self, type, value, traceback):
-        await asyncio.wait([tab.close() for tab in self._tabs])
+        await asyncio.wait([self._tabs[key].close() for key in self._tabs])
         coroutines = []
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'close'):
@@ -663,8 +700,9 @@ class Tabs:
         return self._port
 
     async def add(self):
-        tab = await SocketClient(self._host, self._port, self).__aenter__()
-        self._tabs.append(tab)
+        tab = SocketClient(self._host, self._port, self)
+        self._tabs[tab.id] = tab
+        await tab.__aenter__()
         coroutines = []
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'tab_start'):
@@ -673,9 +711,19 @@ class Tabs:
             await asyncio.wait(coroutines)
         return tab
 
-    def __getitem__(self, pos):
-        if isinstance(pos, int):
-            return self._tabs[pos]
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            if self._tabs[key] is None:
+                raise KeyError(key)
+            return self._tabs[key]
+        else:
+            raise TypeError('{0} key must be str'.format(type(self).__name__))
+
+    def __contains__(self, key):
+        if isinstance(key, str):
+            return key in self._tabs
+        else:
+            raise TypeError('{0} key must be str'.format(type(self).__name__))
 
     @classmethod
     async def run(cls, host, port, callbacks):
@@ -689,28 +737,38 @@ class Tabs:
         self._terminate_lock.release()
 
     async def remove(self, value):
-        if isinstance(value, int):
-            pos = value
+        if isinstance(value, str):
+            key = value
         else:
-            pos = None
-            for i in range(len(self._tabs)):
-                if self._tabs[i] == value:
-                    pos = i
-            if pos is None:
+            key = None
+            for k in self._tabs:
+                if self._tabs[k] == value:
+                    key = k
+            if key is None:
                 raise ValueError('Tab not found')
-        await self._tabs[pos].__aexit___()
-        del self._tabs[pos]
+        await self._tabs[key].__aexit___()
+        del self._tabs[key]
         requests.get('http://{0}:{1}/json/close/{2}'.format(self._host, self._port, self._tab_info['id']))
 
 class SocketClient(API):
     '''
     this client is cool
     '''
-    def __init__(self, host, port, tabs=None):
+    def __init__(self, host, port, tabs=None, tab_id=None):
         super().__init__()
         self._host = host
         self._port = port
-        self._tab_info = json.loads(requests.get('http://{0}:{1}/json/new/'.format(self._host, self._port)).text)
+        if tab_id is None:
+            self._tab_info = json.loads(requests.get('http://{0}:{1}/json/new/'.format(self._host, self._port)).text)
+        else:
+            tab_infos = json.loads(requests.get('http://{0}:{1}/json/list/'.format(self._host, self._port)).text)
+            self._tab_info = None
+            for tab_info in tab_infos:
+                if tab_info['id'] == tab_id:
+                    self._tab_info = tab_info
+            if self._tab_info is None:
+                raise ValueError('Tab {0} not found'.format(tab_id))
+        self._id = self._tab_info['id']
         self._ws_url = self._tab_info['webSocketDebuggerUrl']
         self._i = 0
         self._tabs = tabs
@@ -728,6 +786,10 @@ class SocketClient(API):
     @property
     def ws_url(self):
         return self._ws_url
+
+    @property
+    def id(self):
+        return self._id
 
     def __repr__(self):
         return '{0}("{1}")'.format(type(self).__name__, self._ws_url)
@@ -806,7 +868,7 @@ class SocketClient(API):
     async def remove(self):
         await self.close()
         if self._tabs is not None:
-            self._tabs.remove(self)
+            del self._tabs[self]
             self._tabs = None
 
 
