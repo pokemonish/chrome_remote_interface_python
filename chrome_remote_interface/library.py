@@ -424,6 +424,8 @@ class TabsSync:
         for key in dir(default_callbacks_sync):
             if not key.startswith('_') and key not in excluded_default_callbacks:
                 self._callbacks_collection.append(getattr(default_callbacks_sync, key))
+        for callbacks in self._callbacks_collection:
+            callbacks.start(self)
 
     FailReponse = FailReponse
     helpers = helpers
@@ -576,9 +578,11 @@ class SocketClientSync(API):
             self._tabs = None
 
 class default_callbacks:
-    class new_tagets:
-        def start(tabs):
-            print('HI :)')
+    class targets:
+        async def start(tabs):
+            print(1)
+        async def close(tabs):
+            print(5)
 
 class Tabs:
     '''
@@ -602,13 +606,21 @@ class Tabs:
 
     async def __aenter__(self):
         await self._terminate_lock.acquire()
+        coroutines = []
+        for callbacks in self._callbacks_collection:
+            coroutines.append(callbacks.start(self))
+        if len(coroutines) > 0:
+            await asyncio.wait(coroutines)
         return self
 
     async def __aexit__(self, type, value, traceback):
         await asyncio.wait([tab.close() for tab in self._tabs])
+        coroutines = []
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'close'):
-                await callbacks.close(self)
+                coroutines.append(callbacks.close(self))
+        if len(coroutines) > 0:
+            await asyncio.wait(coroutines)
 
     @property
     def host(self):
@@ -631,7 +643,6 @@ class Tabs:
     async def run(cls, host, port, callbacks):
         async with Tabs(host, port, callbacks) as tabs:
             try:
-                await callbacks.start(tabs)
                 await tabs._terminate_lock.acquire()
             except websockets.ConnectionClosed:
                 pass
@@ -669,6 +680,13 @@ class SocketClient(API):
         self._recv_data_lock = {}
         self._pending_tasks = []
 
+    async def _run_later(self, coroutine):
+        task = asyncio.Task(coroutine)
+        self._pending_tasks.append(task)
+        result = await task
+        self._pending_tasks.remove(task)
+        return result
+
     @property
     def ws_url(self):
         return self._ws_url
@@ -686,14 +704,14 @@ class SocketClient(API):
                         self._method_responses[resp['id']] = resp
                         self._recv_data_lock[resp['id']].release()
                     elif 'method' in resp:
-                        self._pending_tasks.append(asyncio.ensure_future(self._handle_event(resp['method'], resp['params'])))
+                        asyncio.ensure_future(self._run_later(self._handle_event(resp['method'], resp['params'])))
                     else:
                         raise RuntimeError('Unknown data came: {0}'.format(resp))
             except (websockets.ConnectionClosed, concurrent.futures.CancelledError):
                 pass
             except Exception as e:
                 traceback.print_exc()
-        self._pending_tasks.append(asyncio.ensure_future(loop()))
+        asyncio.ensure_future(self._run_later(loop()))
         return self
 
     async def __aexit__(self, type, value, traceback):
@@ -725,22 +743,23 @@ class SocketClient(API):
             for callbacks in self._tabs._callbacks_collection:
                 if self._tabs is not None and callbacks is not None:
                     if hasattr(callbacks, callback_name):
-                        await getattr(callbacks, callback_name)(self._tabs, self, **parameters)
+                        asyncio.ensure_future(self._run_later(getattr(callbacks, callback_name)(self._tabs, self, **parameters)))
                     elif hasattr(callbacks, 'any'):
-                        await callbacks.any(self._tabs, self, callback_name, parameters)
+                        asyncio.ensure_future(self._run_later(callbacks.any(self._tabs, self, callback_name, parameters)))
                     else:
                         pass
-        except (websockets.ConnectionClosed, concurrent.futures.CancelledError):
-            pass
         except Exception as e:
             traceback.print_exc()
 
     async def close(self):
         if self._soc is not None:
             await self._soc.close()
+            coroutines = []
             for callbacks in self._tabs._callbacks_collection:
                 if self._tabs is not None and hasattr(callbacks, 'tab_close'):
-                    await callbacks.tab_close(self._tabs, self)
+                    coroutines.append(callbacks.tab_close(self._tabs, self))
+            if len(coroutines) > 0:
+                await asyncio.wait(coroutines)
             for task in self._pending_tasks:
                 task.cancel()
             self._soc = None
