@@ -4,11 +4,12 @@ import chrome_remote_interface
 if __name__ == '__main__':
     class callbacks:
         async def start(tabs):
-            tab = await tabs.add()
+            await tabs.add()
+        async def tab_start(tabs, tab):
             await tab.Page.enable()
             await tab.Network.enable()
             await tab.Page.navigate(url='http://github.com')
-        async def network__response_received(tabs, tab, requestId, **kwargs):
+        async def network__loading_finished(tabs, tab, requestId, **kwargs):
             try:
                 body = tabs.helpers.unpack_response_body(await tab.Network.get_response_body(requestId=requestId))
                 print('body length:', len(body))
