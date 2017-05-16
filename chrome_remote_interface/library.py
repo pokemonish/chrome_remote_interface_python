@@ -13,6 +13,19 @@ except ImportError:
     pass
 
 
+def call_method(host, port, method, param=None):
+    '''
+    Calls method from remote target.
+    If method not found (non 200 status) raises AttributeError
+    '''
+    if param is None:
+        resp = requests.get('http://{0}:{1}/json/{2}/'.format(host, port, method))
+    else:
+        resp = requests.get('http://{0}:{1}/json/{2}/{3}'.format(host, port, method, param))
+    if resp.status_code == 200:
+        return resp.text
+    else:
+        raise AttributeError('No such method: {0}. Got {1} response'.format(method, resp.status_code))
 
 class Protocol:
     '''
@@ -26,8 +39,8 @@ class Protocol:
     _protocol = None
 
     @classmethod
-    def get_protocol(cls):
-        cls._check()
+    def get_protocol(cls, host=None, port=None):
+        cls._check(host, port)
         return cls._protocol
 
     @classmethod
@@ -36,12 +49,17 @@ class Protocol:
         return cls._protocol
 
     @classmethod
-    def _check(cls):
+    def _check(cls, host, port):
         if cls._protocol is None:
-            cls._protocol = cls._load_protocol()
+            cls._protocol = cls._load_protocol(host, port)
 
     @classmethod
-    def _load_protocol(cls):
+    def _load_protocol(cls, host, port):
+        if host is not None or port is not None:
+            try:
+                return json.loads(call_method(host, port, 'protocol'))
+            except AttributeError:
+                pass
         try:
             with open (cls._get_protocol_file_path(), 'r') as f:
                 return json.load(f)
@@ -78,9 +96,9 @@ class API:
     '''
     Making magick with json data to create classes and functions
     '''
-    def __init__(self):
+    def __init__(self, host=None, port=None):
         raw_type_handlers = []
-        self._raw_protocol = copy.deepcopy(Protocol.get_protocol())
+        self._raw_protocol = copy.deepcopy(Protocol.get_protocol(host, port))
         self.events = self._empty_class()
         self._event_name_to_event = {}
         self._method_name_to_method = {}
@@ -443,7 +461,10 @@ class TabsSync:
         for callbacks in self._callbacks_collection:
             callbacks.start(self)
         self._initial_tabs = []
-        initial_list = json.loads(requests.get('http://{0}:{1}/json/list/'.format(self._host, self._port)).text)
+        try:
+            initial_list = json.loads(call_method(self._host, self._port, 'list'))
+        except AttributeError:
+            initial_list = []
         for el in initial_list:
             self._initial_tabs.append(el['id'])
 
@@ -513,21 +534,26 @@ class SocketClientSync(API):
     These tab client can be used to work synchronously from terminal
     '''
     def __init__(self, host, port, tabs=None, tab_id=None):
-        super().__init__()
+        super().__init__(host, port)
         self._host = host
         self._port = port
         if tab_id is None:
-            self._tab_info = json.loads(requests.get('http://{0}:{1}/json/new/'.format(self._host, self._port)).text)
+            tab_info = json.loads(call_method(self._host, self._port, 'new'))
+            self._id = tab_info['id']
+            self._ws_url = tab_info['webSocketDebuggerUrl']
         else:
-            tab_infos = json.loads(requests.get('http://{0}:{1}/json/list/'.format(self._host, self._port)).text)
-            self._tab_info = None
-            for tab_info in tab_infos:
-                if tab_info['id'] == tab_id:
-                    self._tab_info = tab_info
-            if self._tab_info is None:
-                raise ValueError('Tab {0} not found'.format(tab_id))
-        self._id = self._tab_info['id']
-        self._ws_url = self._tab_info['webSocketDebuggerUrl']
+            try:
+                tab_info = None
+                for tab_info in json.loads(call_method(self._host, self._port, 'list')):
+                    if tab_info['id'] == tab_id:
+                        tab_info = tab_info
+                if tab_info is None:
+                    raise ValueError('Tab {0} not found'.format(tab_id))
+                self._id = tab_info['id']
+                self._ws_url = tab_info['webSocketDebuggerUrl']
+            except:
+                self._id = tab_id
+                self._ws_url = 'ws://{0}:{1}/devtools/page/{2}'.format(self._host, self._port, tab_id)
         self._soc = websocket.create_connection(self._ws_url)
         self._i = 0
         self._tabs = tabs
@@ -614,7 +640,7 @@ class SocketClientSync(API):
                 if self._tabs is not None and hasattr(callbacks, 'tab_close'):
                     callbacks.tab_close(self._tabs, self)
             self._soc = None
-            requests.get('http://{0}:{1}/json/close/{2}'.format(self._host, self._port, self._tab_info['id']))
+            call_method(self._host, self._port, 'close', self._id)
 
     def remove(self):
         self.close()
@@ -665,7 +691,10 @@ class Tabs:
             if not key.startswith('_') and key not in excluded_default_callbacks:
                 self._callbacks_collection.append(getattr(default_callbacks, key))
         self._initial_tabs = []
-        initial_list = json.loads(requests.get('http://{0}:{1}/json/list/'.format(self._host, self._port)).text)
+        try:
+            initial_list = json.loads(call_method(self._host, self._port, 'list'))
+        except AttributeError:
+            initial_list = []
         for el in initial_list:
             self._initial_tabs.append(el['id'])
 
@@ -750,28 +779,33 @@ class Tabs:
                 raise ValueError('Tab not found')
         await self._tabs[key].__aexit___()
         del self._tabs[key]
-        requests.get('http://{0}:{1}/json/close/{2}'.format(self._host, self._port, self._tab_info['id']))
+        call_method(self._host, self._port, 'close', self._id)
 
 class SocketClient(API):
     '''
     this client is cool
     '''
     def __init__(self, host, port, tabs=None, tab_id=None):
-        super().__init__()
+        super().__init__(host, port)
         self._host = host
         self._port = port
         if tab_id is None:
-            self._tab_info = json.loads(requests.get('http://{0}:{1}/json/new/'.format(self._host, self._port)).text)
+            tab_info = json.loads(call_method(self._host, self._port, 'new'))
+            self._id = tab_info['id']
+            self._ws_url = tab_info['webSocketDebuggerUrl']
         else:
-            tab_infos = json.loads(requests.get('http://{0}:{1}/json/list/'.format(self._host, self._port)).text)
-            self._tab_info = None
-            for tab_info in tab_infos:
-                if tab_info['id'] == tab_id:
-                    self._tab_info = tab_info
-            if self._tab_info is None:
-                raise ValueError('Tab {0} not found'.format(tab_id))
-        self._id = self._tab_info['id']
-        self._ws_url = self._tab_info['webSocketDebuggerUrl']
+            try:
+                tab_info = None
+                for tab_info in json.loads(call_method(self._host, self._port, 'list')):
+                    if tab_info['id'] == tab_id:
+                        tab_info = tab_info
+                if tab_info is None:
+                    raise ValueError('Tab {0} not found'.format(tab_id))
+                self._id = tab_info['id']
+                self._ws_url = tab_info['webSocketDebuggerUrl']
+            except:
+                self._id = tab_id
+                self._ws_url = 'ws://{0}:{1}/devtools/page/{2}'.format(self._host, self._port, tab_id)
         self._i = 0
         self._tabs = tabs
         self._method_responses = {}
@@ -865,7 +899,7 @@ class SocketClient(API):
             for task in self._pending_tasks:
                 task.cancel()
             self._soc = None
-            requests.get('http://{0}:{1}/json/close/{2}'.format(self._host, self._port, self._tab_info['id']))
+            call_method(self._host, self._port, 'close', self._id)
 
     async def remove(self):
         await self.close()
