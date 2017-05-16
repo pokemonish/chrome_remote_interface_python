@@ -645,7 +645,6 @@ class default_callbacks:
                     if len(coroutines) > 0:
                         await asyncio.wait(coroutines)
                     await tab.Runtime.run_if_waiting_for_debugger()
-                    print(21212121, targetInfo)
                     tabs._tabs[tab.id] = tab
                 except (websockets.InvalidHandshake, KeyError):
                     pass
