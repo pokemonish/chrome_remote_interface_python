@@ -577,8 +577,8 @@ class SocketClientSync(API):
 
     def _handle_event(self, method, params):
         parameters, callback_name = self._unpack_event(method, params)
-        for callbacks in self._tabs._callbacks_collection:
-            if self._tabs is not None and callbacks is not None:
+        if self._tabs is not None:
+            for callbacks in self._tabs._callbacks_collection:
                 callbacks = callbacks
                 if hasattr(callbacks, callback_name):
                     getattr(callbacks, callback_name)(**parameters)
@@ -633,18 +633,22 @@ class default_callbacks:
         '''
         async def tab_start(tabs, tab):
             await tab.Target.set_discover_targets(True)
+            await tab.Page.set_auto_attach_to_created_pages(True)
         async def target__target_created(tabs, tab, targetInfo, **kwargs):
             if targetInfo.type != 'browser' and targetInfo.targetId not in tabs._initial_tabs and targetInfo.targetId not in tabs._tabs:
-                tab = SocketClient(tabs._host, tabs._port, tabs, targetInfo.targetId)
-                tabs._tabs[tab.id] = tab
-                await tab.__aenter__()
-                coroutines = []
-                for callbacks in tabs._callbacks_collection:
-                    if hasattr(callbacks, 'tab_start'):
-                        coroutines.append(callbacks.tab_start(tabs, tab))
-                if len(coroutines) > 0:
-                    await asyncio.wait(coroutines)
-                return tab
+                try:
+                    tab = await SocketClient(tabs._host, tabs._port, tabs, targetInfo.targetId).__aenter__()
+                    coroutines = []
+                    for callbacks in tabs._callbacks_collection:
+                        if hasattr(callbacks, 'tab_start'):
+                            coroutines.append(callbacks.tab_start(tabs, tab))
+                    if len(coroutines) > 0:
+                        await asyncio.wait(coroutines)
+                    await tab.Runtime.run_if_waiting_for_debugger()
+                    print(21212121, targetInfo)
+                    tabs._tabs[tab.id] = tab
+                except (websockets.InvalidHandshake, KeyError):
+                    pass
         async def close(tabs):
             pass
 
@@ -700,9 +704,8 @@ class Tabs:
         return self._port
 
     async def add(self):
-        tab = SocketClient(self._host, self._port, self)
+        tab = await SocketClient(self._host, self._port, self).__aenter__()
         self._tabs[tab.id] = tab
-        await tab.__aenter__()
         coroutines = []
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'tab_start'):
@@ -840,8 +843,8 @@ class SocketClient(API):
     async def _handle_event(self, method, params):
         try:
             parameters, callback_name = self._unpack_event(method, params)
-            for callbacks in self._tabs._callbacks_collection:
-                if self._tabs is not None and callbacks is not None:
+            if self._tabs is not None:
+                for callbacks in self._tabs._callbacks_collection:
                     if hasattr(callbacks, callback_name):
                         asyncio.ensure_future(self._run_later(getattr(callbacks, callback_name)(self._tabs, self, **parameters)))
                     elif hasattr(callbacks, 'any'):
