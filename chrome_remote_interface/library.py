@@ -544,9 +544,9 @@ class SocketClientSync(API):
         else:
             try:
                 tab_info = None
-                for tab_info in json.loads(call_method(self._host, self._port, 'list')):
-                    if tab_info['id'] == tab_id:
-                        tab_info = tab_info
+                for current_tab_info in json.loads(call_method(self._host, self._port, 'list')):
+                    if current_tab_info['id'] == tab_id:
+                        tab_info = current_tab_info
                 if tab_info is None:
                     raise ValueError('Tab {0} not found'.format(tab_id))
                 self._id = tab_info['id']
@@ -715,13 +715,13 @@ class Tabs:
         return self
 
     async def __aexit__(self, type, value, traceback):
-        await asyncio.wait([self._tabs[key].close() for key in self._tabs])
         coroutines = []
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'close'):
                 coroutines.append(callbacks.close(self))
         if len(coroutines) > 0:
             await asyncio.wait(coroutines)
+        await asyncio.wait([self._tabs[key].close() for key in self._tabs])
 
     @property
     def host(self):
@@ -796,14 +796,14 @@ class SocketClient(API):
         else:
             try:
                 tab_info = None
-                for tab_info in json.loads(call_method(self._host, self._port, 'list')):
-                    if tab_info['id'] == tab_id:
-                        tab_info = tab_info
+                for current_tab_info in json.loads(call_method(self._host, self._port, 'list')):
+                    if current_tab_info['id'] == tab_id:
+                        tab_info = current_tab_info
                 if tab_info is None:
                     raise ValueError('Tab {0} not found'.format(tab_id))
                 self._id = tab_info['id']
                 self._ws_url = tab_info['webSocketDebuggerUrl']
-            except:
+            except AttributeError:
                 self._id = tab_id
                 self._ws_url = 'ws://{0}:{1}/devtools/page/{2}'.format(self._host, self._port, tab_id)
         self._i = 0
