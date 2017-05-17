@@ -450,11 +450,11 @@ class TabsSync:
     '''
     These tabs can be used to work synchronously from terminal
     '''
-    def __init__(self, host, port, callbacks=None, excluded_default_callbacks=[]):
+    def __init__(self, host, port, *callbacks_collection, excluded_default_callbacks=[]):
         self._host = host
         self._port = port
         self._tabs = {}
-        self._callbacks_collection = [] if callbacks is None else [callbacks]
+        self._callbacks_collection = list(callbacks_collection)
         for key in dir(default_callbacks_sync):
             if not key.startswith('_') and key not in excluded_default_callbacks:
                 self._callbacks_collection.append(getattr(default_callbacks_sync, key))
@@ -664,6 +664,7 @@ class default_callbacks:
             if targetInfo.type != 'browser' and targetInfo.targetId not in tabs._initial_tabs and targetInfo.targetId not in tabs._tabs:
                 try:
                     tab = await SocketClient(tabs._host, tabs._port, tabs, targetInfo.targetId).__aenter__()
+                    tabs._tabs[tab.id] = tab
                     coroutines = []
                     for callbacks in tabs._callbacks_collection:
                         if hasattr(callbacks, 'tab_start'):
@@ -671,7 +672,6 @@ class default_callbacks:
                     if len(coroutines) > 0:
                         await asyncio.wait(coroutines)
                     await tab.Runtime.run_if_waiting_for_debugger()
-                    tabs._tabs[tab.id] = tab
                 except (websockets.InvalidHandshake, KeyError):
                     pass
         async def close(tabs):
@@ -681,12 +681,12 @@ class Tabs:
     '''
     Tabs here
     '''
-    def __init__(self, host, port, callbacks=None, excluded_default_callbacks=[]):
+    def __init__(self, host, port, *callbacks_collection, excluded_default_callbacks=[]):
         self._host = host
         self._port = port
         self._tabs = {}
         self._terminate_lock = asyncio.Lock()
-        self._callbacks_collection = [] if callbacks is None else [callbacks]
+        self._callbacks_collection = list(callbacks_collection)
         for key in dir(default_callbacks):
             if not key.startswith('_') and key not in excluded_default_callbacks:
                 self._callbacks_collection.append(getattr(default_callbacks, key))
@@ -757,8 +757,8 @@ class Tabs:
             raise TypeError('{0} key must be str'.format(type(self).__name__))
 
     @classmethod
-    async def run(cls, host, port, callbacks):
-        async with Tabs(host, port, callbacks) as tabs:
+    async def run(cls, host, port, *callbacks_collection):
+        async with Tabs(host, port, *callbacks_collection) as tabs:
             try:
                 await tabs._terminate_lock.acquire()
             except websockets.ConnectionClosed:
