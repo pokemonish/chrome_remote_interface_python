@@ -47,7 +47,7 @@ if __name__ == '__main__':
 
 We use 5 types of callbacks:
 * ```start(tabs)``` - fired on the start.
-* ```tab_start(tabs, tab)``` - fired on tab create.
+* ```tab_start(tabs, tab, manual)``` - fired on tab create.
 * ```network__response_received(tabs, tab, **kwargs)``` - callback for chrome [Network.responseReceived](https://chromedevtools.github.io/devtools-protocol/tot/Network/#event-responseReceived) event.
 * ```any(tabs, tab, callback_name, parameters)``` - fallback which fired when there is no callback found.
 * ```tab_close(tabs, tab)``` - fired when tab is closed
