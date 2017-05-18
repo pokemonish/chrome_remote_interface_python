@@ -676,9 +676,10 @@ class default_callbacks:
                     if len(coroutines) > 0:
                         await asyncio.wait(coroutines)
                     await tab.Runtime.run_if_waiting_for_debugger()
-                except KeyError:
+                except (KeyError, websockets.ConnectionClosed):
                     pass
         async def inspector__detached(tabs, tab, reason):
+            print(tab.id)
             coroutines = []
             await tab.close(force=True)
             for callbacks in tabs._callbacks_collection:
@@ -720,6 +721,7 @@ class Tabs:
 
     FailReponse = FailReponse
     helpers = helpers
+    ConnectionClosed = websockets.ConnectionClosed
 
     def __repr__(self):
         return '{0}({1}:{2})'.format(type(self).__name__, self._host, self._port)
@@ -838,8 +840,6 @@ class SocketClient(API):
         self._pending_tasks.append(task)
         try:
             await task
-        except (websockets.ConnectionClosed, concurrent.futures.CancelledError):
-            pass
         finally:
             self._pending_tasks.remove(task)
 
@@ -914,7 +914,10 @@ class SocketClient(API):
     async def close(self, force=False):
         if not self.closed:
             await self._soc.close()
+        try:
             call_method(self._host, self._port, 'close', self._id)
+        except AttributeError:
+            pass
         if not self.closed or force:
             coroutines = []
             for callbacks in self._tabs._callbacks_collection:
