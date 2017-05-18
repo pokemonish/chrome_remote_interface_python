@@ -605,7 +605,6 @@ class SocketClientSync(API):
         parameters, callback_name = self._unpack_event(method, params)
         if self._tabs is not None:
             for callbacks in self._tabs._callbacks_collection:
-                callbacks = callbacks
                 if hasattr(callbacks, callback_name):
                     getattr(callbacks, callback_name)(**parameters)
                 elif hasattr(callbacks, 'any'):
@@ -634,13 +633,17 @@ class SocketClientSync(API):
         return n
 
     def close(self):
-        if self._soc is not None:
+        if not self.closed:
             self._soc.close()
+            self._soc = None
             for callbacks in self._tabs._callbacks_collection:
                 if self._tabs is not None and hasattr(callbacks, 'tab_close'):
                     callbacks.tab_close(self._tabs, self)
-            self._soc = None
             call_method(self._host, self._port, 'close', self._id)
+
+    @property
+    def closed(self):
+        return self._soc is None
 
     def remove(self):
         self.close()
@@ -660,6 +663,8 @@ class default_callbacks:
         async def tab_start(tabs, tab):
             await tab.Target.set_discover_targets(True)
             await tab.Page.set_auto_attach_to_created_pages(True)
+            await tab.Inspector.enable()
+            await tab.Runtime.evaluate('open("http://yandex.ru")')
         async def target__target_created(tabs, tab, targetInfo, **kwargs):
             if targetInfo.type != 'browser' and targetInfo.targetId not in tabs._initial_tabs and targetInfo.targetId not in tabs._tabs:
                 try:
@@ -672,8 +677,24 @@ class default_callbacks:
                     if len(coroutines) > 0:
                         await asyncio.wait(coroutines)
                     await tab.Runtime.run_if_waiting_for_debugger()
-                except (websockets.InvalidHandshake, KeyError):
+                except KeyError:
                     pass
+        async def inspector__detached(tabs, tab, reason):
+            coroutines = []
+            await tab.close(force=True)
+            for callbacks in tabs._callbacks_collection:
+                if hasattr(callbacks, 'tab_suicide'):
+                    coroutines.append(callbacks.tab_suicide(tabs, tab, reason))
+            if len(coroutines) > 0:
+                await asyncio.wait(coroutines)
+        async def inspector__target_crashed(tabs, tab):
+            coroutines = []
+            await tab.close(force=True)
+            for callbacks in tabs._callbacks_collection:
+                if hasattr(callbacks, 'tab_suicide'):
+                    coroutines.append(callbacks.tab_suicide(tabs, tab, 'target_crashed'))
+            if len(coroutines) > 0:
+                await asyncio.wait(coroutines)
         async def close(tabs):
             pass
 
@@ -765,7 +786,8 @@ class Tabs:
                 pass
 
     def terminate(self):
-        self._terminate_lock.release()
+        if self._terminate_lock.locked():
+            self._terminate_lock.release()
 
     async def remove(self, value):
         if isinstance(value, str):
@@ -815,9 +837,12 @@ class SocketClient(API):
     async def _run_later(self, coroutine):
         task = asyncio.Task(coroutine)
         self._pending_tasks.append(task)
-        result = await task
-        self._pending_tasks.remove(task)
-        return result
+        try:
+            await task
+        except (websockets.ConnectionClosed, concurrent.futures.CancelledError):
+            pass
+        finally:
+            self._pending_tasks.remove(task)
 
     @property
     def ws_url(self):
@@ -834,7 +859,7 @@ class SocketClient(API):
         self._soc = await websockets.connect(self._ws_url)
         async def loop():
             try:
-                while self._soc is not None:
+                while 1:
                     resp = json.loads(await self._soc.recv())
                     if 'id' in resp:
                         self._method_responses[resp['id']] = resp
@@ -887,9 +912,11 @@ class SocketClient(API):
         except Exception as e:
             traceback.print_exc()
 
-    async def close(self):
-        if self._soc is not None:
+    async def close(self, force=False):
+        if not self.closed:
             await self._soc.close()
+            call_method(self._host, self._port, 'close', self._id)
+        if not self.closed or force:
             coroutines = []
             for callbacks in self._tabs._callbacks_collection:
                 if self._tabs is not None and hasattr(callbacks, 'tab_close'):
@@ -898,8 +925,10 @@ class SocketClient(API):
                 await asyncio.wait(coroutines)
             for task in self._pending_tasks:
                 task.cancel()
-            self._soc = None
-            call_method(self._host, self._port, 'close', self._id)
+
+    @property
+    def closed(self):
+        return self._soc.close_reason is not None
 
     async def remove(self):
         await self.close()
