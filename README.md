@@ -45,7 +45,7 @@ if __name__ == '__main__':
     asyncio.get_event_loop().run_until_complete(chrome_remote_interface.Tabs.run('localhost', 9222, callbacks))
 ```
 
-We use 5 types of callbacks:
+We use these types of callbacks:
 * ```start(tabs)``` - fired on the start.
 * ```tab_start(tabs, tab, manual)``` - fired on tab create.
 * ```network__response_received(tabs, tab, **kwargs)``` - callback for chrome [Network.responseReceived](https://chromedevtools.github.io/devtools-protocol/tot/Network/#event-responseReceived) event.
