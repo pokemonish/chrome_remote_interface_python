@@ -500,7 +500,7 @@ class TabsSync:
         self._tabs[tab.id] = tab
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'tab_start'):
-                callbacks.tab_start(self, tab)
+                callbacks.tab_start(self, tab, True)
         return tab
 
     def __getitem__(self, key):
@@ -660,7 +660,7 @@ class default_callbacks:
         '''
         Used to handle tabs which opened without our wish
         '''
-        async def tab_start(tabs, tab):
+        async def tab_start(tabs, tab, manual):
             await tab.Target.set_discover_targets(True)
             await tab.Page.set_auto_attach_to_created_pages(True)
             await tab.Inspector.enable()
@@ -672,7 +672,7 @@ class default_callbacks:
                     coroutines = []
                     for callbacks in tabs._callbacks_collection:
                         if hasattr(callbacks, 'tab_start'):
-                            coroutines.append(callbacks.tab_start(tabs, tab))
+                            coroutines.append(callbacks.tab_start(tabs, tab, False))
                     if len(coroutines) > 0:
                         await asyncio.wait(coroutines)
                     await tab.Runtime.run_if_waiting_for_debugger()
@@ -759,7 +759,7 @@ class Tabs:
         coroutines = []
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'tab_start'):
-                coroutines.append(callbacks.tab_start(self, tab))
+                coroutines.append(callbacks.tab_start(self, tab, True))
         if len(coroutines) > 0:
             await asyncio.wait(coroutines)
         return tab

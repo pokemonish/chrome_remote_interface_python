@@ -5,7 +5,7 @@ if __name__ == '__main__':
     class callbacks:
         async def start(tabs):
             await tabs.add()
-        async def tab_start(tabs, tab):
+        async def tab_start(tabs, tab, manual):
             await tab.Page.enable()
             await tab.Network.enable()
             await tab.Page.navigate(url='http://github.com')
