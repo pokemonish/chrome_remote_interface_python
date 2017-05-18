@@ -354,8 +354,9 @@ class API:
             result = {}
             for key, value in values.items():
                 if key in returns:
-                    result[key] = result[returns[key].type](value)
+                    result[key] = returns[key].type(value)
         except KeyError:
+            traceback.print_exc()
             result = values
         if len(result) == 0:
             return
@@ -502,6 +503,9 @@ class TabsSync:
             if hasattr(callbacks, 'tab_start'):
                 callbacks.tab_start(self, tab, True)
         return tab
+
+    def keys(self):
+        return self._tabs.keys()
 
     def __getitem__(self, key):
         if isinstance(key, str):
@@ -763,6 +767,9 @@ class Tabs:
         if len(coroutines) > 0:
             await asyncio.wait(coroutines)
         return tab
+
+    def keys(self):
+        return self._tabs.keys()
 
     def __getitem__(self, key):
         if isinstance(key, str):
