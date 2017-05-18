@@ -236,8 +236,6 @@ class API:
                         def __getattr__(self, name):
                             if name in self:
                                 return self[name]
-                            else:
-                                return super().__getattr__(name)
                         def __repr__(self):
                             return '{0}({1})'.format(self._class_repr, super().__repr__())
                         def __dir__(self):
@@ -356,7 +354,6 @@ class API:
                 if key in returns:
                     result[key] = returns[key].type(value)
         except KeyError:
-            traceback.print_exc()
             result = values
         if len(result) == 0:
             return
