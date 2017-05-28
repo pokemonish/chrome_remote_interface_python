@@ -1,5 +1,4 @@
 import requests, base64, json, os, types, copy, collections, traceback, concurrent
-import base64
 
 try:
     import websocket
@@ -495,10 +494,11 @@ class TabsSync:
 
     def add(self):
         tab = SocketClientSync(self._host, self._port, self)
+        tab.manual = True
         self._tabs[tab.id] = tab
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'tab_start'):
-                callbacks.tab_start(self, tab, True)
+                callbacks.tab_start(self, tab)
         return tab
 
     def keys(self):
@@ -661,7 +661,7 @@ class default_callbacks:
         '''
         Used to handle tabs which opened without our wish
         '''
-        async def tab_start(tabs, tab, manual):
+        async def tab_start(tabs, tab):
             await tab.Target.set_discover_targets(True)
             await tab.Page.set_auto_attach_to_created_pages(True)
             await tab.Inspector.enable()
@@ -669,11 +669,12 @@ class default_callbacks:
             if targetInfo.type != 'browser' and targetInfo.targetId not in tabs._initial_tabs and targetInfo.targetId not in tabs._tabs:
                 try:
                     tab = await SocketClient(tabs._host, tabs._port, tabs, targetInfo.targetId).__aenter__()
+                    tab.manual = False
                     tabs._tabs[tab.id] = tab
                     coroutines = []
                     for callbacks in tabs._callbacks_collection:
                         if hasattr(callbacks, 'tab_start'):
-                            coroutines.append(callbacks.tab_start(tabs, tab, False))
+                            coroutines.append(callbacks.tab_start(tabs, tab))
                     if len(coroutines) > 0:
                         await asyncio.wait(coroutines)
                     await tab.Runtime.run_if_waiting_for_debugger()
@@ -756,11 +757,12 @@ class Tabs:
 
     async def add(self):
         tab = await SocketClient(self._host, self._port, self).__aenter__()
+        tab.manual = True
         self._tabs[tab.id] = tab
         coroutines = []
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'tab_start'):
-                coroutines.append(callbacks.tab_start(self, tab, True))
+                coroutines.append(callbacks.tab_start(self, tab))
         if len(coroutines) > 0:
             await asyncio.wait(coroutines)
         return tab
