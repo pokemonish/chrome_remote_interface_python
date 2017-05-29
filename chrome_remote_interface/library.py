@@ -331,11 +331,7 @@ class API:
             result = {}
             for key, value in values.items():
                 if key in parameters:
-                    try:
-                        result[key] = parameters[key].type(value)
-                    except:
-                        print(event_name, key, value)
-                        raise
+                    result[key] = parameters[key].type(value)
             return result, callback_name
         except KeyError:
             return values, callback_name
