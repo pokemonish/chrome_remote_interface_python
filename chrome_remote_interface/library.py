@@ -331,7 +331,11 @@ class API:
             result = {}
             for key, value in values.items():
                 if key in parameters:
-                    result[key] = parameters[key].type(value)
+                    try:
+                        result[key] = parameters[key].type(value)
+                    except:
+                        print(event_name, key, value)
+                        raise
             return result, callback_name
         except KeyError:
             return values, callback_name
@@ -392,6 +396,8 @@ class API:
     def _dummy_cool_type(self, class_repr, t):
         class CoolType(metaclass=self.CustomClassReprType):
             def __new__(cls, obj):
+                if obj is None:
+                    return obj
                 if cls._type == float and type(obj) == int:
                     obj = float(obj)
                 if cls._type is not None and cls._type != type(obj):
