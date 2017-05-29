@@ -257,7 +257,8 @@ class API:
                                 raise ValueError('string must be one of the following: {0}'.format(', '.join(cls.enum)))
                             return value
                     CoolType.enum = enum
-                    CoolType._class_repr = class_repr
+                    CoolType._type = str
+                    CoolType._class_repr = class_repr if class_repr is not None else str.__name__
             elif t in ['integer', 'number', 'any', 'boolean']:
                 name_to_class = {'integer': int, 'number': float, 'boolean': bool, 'any': None}
                 CoolType = self._dummy_cool_type(class_repr, name_to_class[t])
