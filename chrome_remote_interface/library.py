@@ -213,10 +213,8 @@ class API:
                         def __init__(slf, values=None, **kwargs):
                             if values is not None:
                                 pass
-                            elif len(kwargs) > 0:
-                                values = kwargs
                             else:
-                                raise TypeError('Need values or key-value arguments')
+                                values = kwargs
                             to_add = set(slf.property_names.keys())
                             for key in values:
                                 if key not in slf.property_names:
