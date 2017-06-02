@@ -311,6 +311,8 @@ class API:
                     if not value.optional and key not in kwargs:
                         raise TypeError('Required argument \'{0}\' not found'.format(key))
                 for key, arg in kwargs.items():
+                    if key not in slf.parameters:
+                        raise TypeError('got an unexpected keyword argument \'{0}\''.format(key))
                     param = slf.parameters[key].type
                     potential_class = param._type if hasattr(param, '_type') else param
                     valid = (arg.__class__ == potential_class) or (potential_class == float and arg.__class__ == int)
@@ -746,7 +748,7 @@ class Tabs:
                 coroutines.append(callbacks.close(self))
         if len(coroutines) > 0:
             await asyncio.wait(coroutines)
-        await asyncio.wait([self._tabs[key].close() for key in self._tabs])
+        await asyncio.wait([self._tabs[key].__aexit__(None, None, No) for key in self._tabs])
 
     @property
     def host(self):
@@ -788,10 +790,7 @@ class Tabs:
     @classmethod
     async def run(cls, host, port, *callbacks_collection):
         async with Tabs(host, port, *callbacks_collection) as tabs:
-            try:
-                await tabs._terminate_lock.acquire()
-            except websockets.ConnectionClosed:
-                pass
+            await tabs._terminate_lock.acquire()
 
     def terminate(self):
         if self._terminate_lock.locked():
@@ -882,7 +881,7 @@ class SocketClient(API):
         return self
 
     async def __aexit__(self, type, value, traceback):
-        await self._soc.close()
+        await self.close()
 
     async def send_raw(self, method, params=None, expectedTypes=None):
         self._i += 1
