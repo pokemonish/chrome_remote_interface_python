@@ -684,7 +684,6 @@ class default_callbacks:
                 except (KeyError, websockets.ConnectionClosed):
                     pass
         async def inspector__detached(tabs, tab, reason):
-            print(tab.id)
             coroutines = []
             await tab.close(force=True)
             for callbacks in tabs._callbacks_collection:
