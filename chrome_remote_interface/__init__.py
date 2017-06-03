@@ -7,7 +7,7 @@ This module is one of the many third-party protocol clients.
 
 from .library import (
     Protocol,
-    FailReponse,
+    FailResponse,
     API,
     TabsSync,
     SocketClientSync,
