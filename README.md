@@ -33,7 +33,7 @@ if __name__ == '__main__':
             try:
                 body = tabs.helpers.unpack_response_body(await tab.Network.get_response_body(requestId=requestId))
                 print('body length:', len(body))
-            except tabs.FailReponse as e:
+            except tabs.FailResponse as e:
                 print('fail:', e)
         async def page__frame_stopped_loading(tabs, tab, **kwargs):
             print('finish')

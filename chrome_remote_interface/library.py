@@ -83,7 +83,7 @@ class Protocol:
     def _get_protocol_file_path(cls):
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), cls.PROTOCOL_FILE_NAME)
 
-class FailReponse(Exception):
+class FailResponse(Exception):
     '''
     Raised if chrome doesn't like our request
     '''
@@ -468,7 +468,7 @@ class TabsSync:
         for el in initial_list:
             self._initial_tabs.append(el['id'])
 
-    FailReponse = FailReponse
+    FailResponse = FailResponse
     helpers = helpers
 
     def __repr__(self):
@@ -601,7 +601,7 @@ class SocketClientSync(API):
                 i = resp['id']
                 if i != self._i:
                     raise RuntimeError('ids are not the same {0} != {0}'.format(i, self._i))
-                raise FailReponse(resp['error']['message'], resp['error']['code'])
+                raise FailResponse(resp['error']['message'], resp['error']['code'])
             else:
                 raise RuntimeError('Unknown data came: {0}'.format(resp))
 
@@ -674,16 +674,14 @@ class default_callbacks:
                     tab = await SocketClient(tabs._host, tabs._port, tabs, targetInfo.targetId).__aenter__()
                     tab.manual = False
                     tabs._tabs[tab.id] = tab
-                    coroutines = []
                     for callbacks in tabs._callbacks_collection:
                         if hasattr(callbacks, 'tab_start'):
-                            coroutines.append(callbacks.tab_start(tabs, tab))
-                    if len(coroutines) > 0:
-                        await asyncio.wait(coroutines)
+                            asyncio.ensure_future(tab._run_later(callbacks.tab_start(tabs, tab)))
                     await tab.Runtime.run_if_waiting_for_debugger()
-                except (KeyError, websockets.ConnectionClosed):
+                except (KeyError, ValueError, websockets.ConnectionClosed, websockets.InvalidHandshake):
                     pass
         async def inspector__detached(tabs, tab, reason):
+            print('inspector__detached', tab.id, reason)
             coroutines = []
             await tab.close(force=True)
             for callbacks in tabs._callbacks_collection:
@@ -699,9 +697,6 @@ class default_callbacks:
                     coroutines.append(callbacks.tab_suicide(tabs, tab, 'target_crashed'))
             if len(coroutines) > 0:
                 await asyncio.wait(coroutines)
-        async def close(tabs):
-            pass
-
 class Tabs:
     '''
     Tabs here
@@ -723,7 +718,7 @@ class Tabs:
         for el in initial_list:
             self._initial_tabs.append(el['id'])
 
-    FailReponse = FailReponse
+    FailResponse = FailResponse
     helpers = helpers
     ConnectionClosed = websockets.ConnectionClosed
 
@@ -747,7 +742,7 @@ class Tabs:
                 coroutines.append(callbacks.close(self))
         if len(coroutines) > 0:
             await asyncio.wait(coroutines)
-        await asyncio.wait([self._tabs[key].__aexit__(None, None, No) for key in self._tabs])
+        await asyncio.wait([self._tabs[key].__aexit__(None, None, None) for key in self._tabs])
 
     @property
     def host(self):
@@ -764,9 +759,7 @@ class Tabs:
         coroutines = []
         for callbacks in self._callbacks_collection:
             if hasattr(callbacks, 'tab_start'):
-                coroutines.append(callbacks.tab_start(self, tab))
-        if len(coroutines) > 0:
-            await asyncio.wait(coroutines)
+                asyncio.ensure_future(tab._run_later(callbacks.tab_start(self, tab)))
         return tab
 
     def keys(self):
@@ -787,8 +780,8 @@ class Tabs:
             raise TypeError('{0} key must be str'.format(type(self).__name__))
 
     @classmethod
-    async def run(cls, host, port, *callbacks_collection):
-        async with Tabs(host, port, *callbacks_collection) as tabs:
+    async def run(cls, host, port, *args, **kwargs):
+        async with Tabs(host, port, *args, **kwargs) as tabs:
             await tabs._terminate_lock.acquire()
 
     def terminate(self):
@@ -813,7 +806,7 @@ class SocketClient(API):
     '''
     this client is cool
     '''
-    def __init__(self, host, port, tabs=None, tab_id=None):
+    def __init__(self, host, port, tabs, tab_id=None):
         super().__init__(host, port)
         self._host = host
         self._port = port
@@ -898,7 +891,7 @@ class SocketClient(API):
             else:
                 return result
         elif 'error' in resp:
-            raise FailReponse(resp['error']['message'], resp['error']['code'])
+            raise FailResponse(resp['error']['message'], resp['error']['code'])
         else:
             raise RuntimeError('Unknown data came: {0}'.format(resp))
 
