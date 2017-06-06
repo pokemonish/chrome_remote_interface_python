@@ -697,6 +697,7 @@ class default_callbacks:
                     coroutines.append(callbacks.tab_suicide(tabs, tab, 'target_crashed'))
             if len(coroutines) > 0:
                 await asyncio.wait(coroutines)
+
 class Tabs:
     '''
     Tabs here
@@ -833,6 +834,18 @@ class SocketClient(API):
         self._recv_data_lock = {}
         self._pending_tasks = []
 
+        self._locks = {}
+        class lock:
+            def __init__(slf, key='default'):
+                slf.key = key
+            async def __aenter__(slf):
+                if slf.key not in self._locks:
+                    self._locks[slf.key] = asyncio.Lock()
+                await self._locks[slf.key].acquire()
+            async def __aexit__(slf, exc_type, exc, tb):
+                self._locks[slf.key].release()
+        self.lock = lock
+
     async def _run_later(self, coroutine):
         task = asyncio.Task(coroutine)
         self._pending_tasks.append(task)
@@ -935,6 +948,7 @@ class SocketClient(API):
         if self._tabs is not None:
             del self._tabs[self]
             self._tabs = None
+
 
 
 
