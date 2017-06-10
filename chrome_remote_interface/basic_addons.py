@@ -1,4 +1,4 @@
-import pyperclip
+import pyperclip, asyncio
 
 class targets:
     '''
