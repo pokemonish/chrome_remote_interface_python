@@ -12,6 +12,5 @@ from .library import (
     TabsSync,
     SocketClientSync,
     Tabs,
-    SocketClient,
-    helpers
+    SocketClient
 )

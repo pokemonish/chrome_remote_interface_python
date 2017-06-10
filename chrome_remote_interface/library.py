@@ -1,4 +1,5 @@
-import requests, base64, json, os, types, copy, collections, traceback, concurrent
+import requests, base64, json, os, types, copy, collections, traceback, concurrent, time
+from . import basic_addons
 
 try:
     import websocket
@@ -430,34 +431,15 @@ class API:
         a._class_repr = class_repr
         return a
 
-class helpers:
-    '''
-    I put here some helping tools.
-    '''
-    def unpack_response_body(packed):
-        result = packed['body']
-        if packed['base64Encoded']:
-            result = base64.b64decode(result)
-        return result
-
-class default_callbacks_sync:
-    '''
-    I am too lazy to do something here
-    Watch async default_callbacks for description
-    '''
-
 class TabsSync:
     '''
     These tabs can be used to work synchronously from terminal
     '''
-    def __init__(self, host, port, *callbacks_collection, excluded_default_callbacks=[]):
+    def __init__(self, host, port, *callbacks_collection):
         self._host = host
         self._port = port
         self._tabs = {}
         self._callbacks_collection = list(callbacks_collection)
-        for key in dir(default_callbacks_sync):
-            if not key.startswith('_') and key not in excluded_default_callbacks:
-                self._callbacks_collection.append(getattr(default_callbacks_sync, key))
         for callbacks in self._callbacks_collection:
             callbacks.start(self)
         self._initial_tabs = []
@@ -469,7 +451,6 @@ class TabsSync:
             self._initial_tabs.append(el['id'])
 
     FailResponse = FailResponse
-    helpers = helpers
 
     def __repr__(self):
         return '{0}({1}:{2})'.format(type(self).__name__, self._host, self._port)
@@ -655,61 +636,49 @@ class SocketClientSync(API):
             del self._tabs[self.id]
             self._tabs = None
 
-class default_callbacks:
-    '''
-    Default callbacks that probably should be
-    May be removed by excluded_default_callbacks in Tabs constructor
-    '''
-    class targets:
-        '''
-        Used to handle tabs which opened without our wish
-        '''
-        async def tab_start(tabs, tab):
-            await tab.Target.set_discover_targets(True)
-            await tab.Page.set_auto_attach_to_created_pages(True)
-            await tab.Inspector.enable()
-        async def target__target_created(tabs, tab, targetInfo, **kwargs):
-            if targetInfo.type != 'browser' and targetInfo.targetId not in tabs._initial_tabs and targetInfo.targetId not in tabs._tabs:
-                try:
-                    tab = await SocketClient(tabs._host, tabs._port, tabs, targetInfo.targetId).__aenter__()
-                    tab.manual = False
-                    tabs._tabs[tab.id] = tab
-                    for callbacks in tabs._callbacks_collection:
-                        if hasattr(callbacks, 'tab_start'):
-                            asyncio.ensure_future(tab._run_later(callbacks.tab_start(tabs, tab)))
-                    await tab.Runtime.run_if_waiting_for_debugger()
-                except (KeyError, ValueError, websockets.ConnectionClosed, websockets.InvalidHandshake):
-                    pass
-        async def inspector__detached(tabs, tab, reason):
-            coroutines = []
-            await tab.close(force=True)
-            for callbacks in tabs._callbacks_collection:
-                if hasattr(callbacks, 'tab_suicide'):
-                    coroutines.append(callbacks.tab_suicide(tabs, tab, reason))
-            if len(coroutines) > 0:
-                await asyncio.wait(coroutines)
-        async def inspector__target_crashed(tabs, tab):
-            coroutines = []
-            await tab.close(force=True)
-            for callbacks in tabs._callbacks_collection:
-                if hasattr(callbacks, 'tab_suicide'):
-                    coroutines.append(callbacks.tab_suicide(tabs, tab, 'target_crashed'))
-            if len(coroutines) > 0:
-                await asyncio.wait(coroutines)
-
 class Tabs:
     '''
     Tabs here
     '''
-    def __init__(self, host, port, *callbacks_collection, excluded_default_callbacks=[]):
+    def __init__(self, host, port, *callbacks_collection, excluded_basic_addons=[]):
         self._host = host
         self._port = port
         self._tabs = {}
         self._terminate_lock = asyncio.Lock()
         self._callbacks_collection = list(callbacks_collection)
-        for key in dir(default_callbacks):
-            if not key.startswith('_') and key not in excluded_default_callbacks:
-                self._callbacks_collection.append(getattr(default_callbacks, key))
+        self._macros = []
+        class helpers:
+            pass
+        self.helpers = helpers
+        for key in dir(basic_addons):
+            if not key.startswith('_') and key not in excluded_basic_addons:
+                addon = getattr(basic_addons, key)
+                if hasattr(addon, 'macros'):
+                    macros = getattr(addon, 'macros')
+                    for key2 in dir(macros):
+                        if not key2.startswith('_'):
+                            try:
+                                domain_name, prop_name = key2.split('__', 1)
+                                method = getattr(macros, key2)
+                                self._macros.append((domain_name, prop_name, method))
+                            except ValueError:
+                                pass
+                if hasattr(addon, 'helpers'):
+                    addon_helpers = getattr(addon, 'helpers')
+                    if not hasattr(self.helpers, key):
+                        class module_helpers:
+                            pass
+                        setattr(self.helpers, key, module_helpers)
+                    else:
+                        module_helpers = getattr(self.helpers, key)
+                    for key2 in dir(addon_helpers):
+                        if not key2.startswith('_'):
+                            if not hasattr(module_helpers, key2):
+                                setattr(module_helpers, key2, getattr(addon_helpers, key2))
+                            else:
+                                raise KeyError('Duplicating helper {0}.{1}'.format(key, key2))
+                if hasattr(addon, 'events'):
+                    self._callbacks_collection.append(getattr(addon, 'events'))
         self._initial_tabs = []
         try:
             initial_list = json.loads(call_method(self._host, self._port, 'list'))
@@ -717,9 +686,9 @@ class Tabs:
             initial_list = []
         for el in initial_list:
             self._initial_tabs.append(el['id'])
+        self._start_time = time.time()
 
     FailResponse = FailResponse
-    helpers = helpers
     ConnectionClosed = websockets.ConnectionClosed
 
     def __repr__(self):
@@ -788,6 +757,9 @@ class Tabs:
         if self._terminate_lock.locked():
             self._terminate_lock.release()
 
+    def timestamp(self):
+        return time.time() - self._start_time
+
     async def remove(self, value):
         if isinstance(value, str):
             key = value
@@ -832,7 +804,16 @@ class SocketClient(API):
         self._method_responses = {}
         self._recv_data_lock = {}
         self._pending_tasks = []
-
+        for domain_name, prop_name, method in tabs._macros:
+            if not hasattr(self, domain_name):
+                domain = self._empty_class()
+                setattr(self, domain_name, domain)
+            else:
+                domain = getattr(self, domain_name)
+            if not hasattr(domain, prop_name):
+                setattr(domain, prop_name, self._wrap_macros(method))
+            else:
+                raise KeyError('Duplicating macros {0}.{1}'.format(domain, prop_name))
         self._locks = {}
         class lock:
             def __init__(slf, key='default'):
@@ -844,6 +825,12 @@ class SocketClient(API):
             async def __aexit__(slf, exc_type, exc, tb):
                 self._locks[slf.key].release()
         self.lock = lock
+        self._start_time = time.time()
+
+    def _wrap_macros(self, macro):
+        async def wrapped(*args, **kwargs):
+            return await macro(self._tabs, self, *args, **kwargs)
+        return wrapped
 
     async def _run_later(self, coroutine):
         task = asyncio.Task(coroutine)
@@ -886,6 +873,16 @@ class SocketClient(API):
 
     async def __aexit__(self, type, value, traceback):
         await self.close()
+
+    def _emit_event(self, event_name, **kwargs):
+        coroutines = []
+        for callbacks in self._tabs._callbacks_collection:
+            if hasattr(callbacks, event_name):
+                coroutines.append(getattr(callbacks, event_name)(self._tabs, self, **kwargs))
+            elif hasattr(callbacks, 'any'):
+                coroutines.append(callbacks.any(tabs, tab, **kwargs))
+        if len(coroutines) > 0:
+            asyncio.ensure_future(self._run_later(asyncio.wait(coroutines)))
 
     async def send_raw(self, method, params=None, expectedTypes=None):
         self._i += 1
@@ -941,6 +938,9 @@ class SocketClient(API):
     @property
     def closed(self):
         return self._soc.close_reason is not None
+
+    def timestamp(self):
+        return time.time() - self._start_time
 
     async def remove(self):
         await self.close()

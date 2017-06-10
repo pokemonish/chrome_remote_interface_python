@@ -1,3 +1,5 @@
 websockets
 websocket-client
 requests
+pyperclip
+pygame
