@@ -63,10 +63,14 @@ class keyboard:
             for key in keys:
                 await Input.press_key(key)
         async def Input__paste(tabs, tab, data):
-            backup = '123'
+            try:
+                backup = pyperclip.determine_clipboard()[1]() # Not sure if is correct D:
+            except:
+                backup = None
             pyperclip.copy(data)
             await tab.Input.press_key(tabs.helpers.keyboard.PASTE)
-            pyperclip.copy(backup)
+            if backup is not None:
+                pyperclip.copy(backup)
     class helpers:
         buttons = {
             '\b': KeysTuple('Backspace', 'Backspace', None, None, 8, 8, False, False),
