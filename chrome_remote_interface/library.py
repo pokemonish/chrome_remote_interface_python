@@ -690,6 +690,7 @@ class Tabs:
 
     FailResponse = FailResponse
     ConnectionClosed = websockets.ConnectionClosed
+    InvalidHandshake = websockets.InvalidHandshake
 
     def __repr__(self):
         return '{0}({1}:{2})'.format(type(self).__name__, self._host, self._port)

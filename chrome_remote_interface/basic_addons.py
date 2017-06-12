@@ -17,7 +17,7 @@ class targets:
                     tabs._tabs[tab.id] = tab
                     await tab.Runtime.run_if_waiting_for_debugger()
                     tab._emit_event('tab_start')
-                except (KeyError, ValueError, websockets.ConnectionClosed, websockets.InvalidHandshake):
+                except (KeyError, ValueError, tabs.ConnectionClosed, tabs.InvalidHandshake):
                     pass
         async def inspector__detached(tabs, tab, reason):
             await tab.close(force=True)
@@ -27,6 +27,10 @@ class targets:
             tab._emit_event('tab_suicide', 'target_crashed')
 
 
+class mouse:
+    '''
+    
+    '''
 
 
 class KeysTuple:
