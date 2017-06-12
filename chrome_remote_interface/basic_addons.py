@@ -24,7 +24,7 @@ class targets:
             tab._emit_event('tab_suicide', reason=reason)
         async def inspector__target_crashed(tabs, tab):
             await tab.close(force=True)
-            tab._emit_event('tab_suicide', 'target_crashed')
+            tab._emit_event('tab_suicide', reason='target_crashed')
 
 
 class mouse:
