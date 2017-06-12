@@ -12,7 +12,7 @@ class targets:
         async def target__target_created(tabs, tab, targetInfo, **kwargs):
             if targetInfo.type != 'browser' and targetInfo.targetId not in tabs._initial_tabs and targetInfo.targetId not in tabs._tabs:
                 try:
-                    tab = await SocketClient(tabs._host, tabs._port, tabs, targetInfo.targetId).__aenter__()
+                    tab = await tab.__class__(tabs._host, tabs._port, tabs, targetInfo.targetId).__aenter__()
                     tab.manual = False
                     tabs._tabs[tab.id] = tab
                     await tab.Runtime.run_if_waiting_for_debugger()
