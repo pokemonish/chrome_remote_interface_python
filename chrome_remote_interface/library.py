@@ -435,7 +435,7 @@ class TabsSync:
     '''
     These tabs can be used to work synchronously from terminal
     '''
-    def __init__(self, host, port, *callbacks_collection):
+    def __init__(self, host, port, *callbacks_collection, fail_on_exception=True):
         self._host = host
         self._port = port
         self._tabs = {}
@@ -640,12 +640,13 @@ class Tabs:
     '''
     Tabs here
     '''
-    def __init__(self, host, port, *callbacks_collection, excluded_basic_addons=[]):
+    def __init__(self, host, port, *callbacks_collection, excluded_basic_addons=[], fail_on_exception=True):
         self._host = host
         self._port = port
         self._tabs = {}
         self._terminate_lock = asyncio.Lock()
         self._callbacks_collection = list(callbacks_collection)
+        self._fail_on_exception = fail_on_exception
         self._macros = []
         class helpers:
             pass
@@ -653,32 +654,33 @@ class Tabs:
         for key in dir(basic_addons):
             if not key.startswith('_') and key not in excluded_basic_addons:
                 addon = getattr(basic_addons, key)
-                if hasattr(addon, 'macros'):
-                    macros = getattr(addon, 'macros')
-                    for key2 in dir(macros):
-                        if not key2.startswith('_'):
-                            try:
-                                domain_name, prop_name = key2.split('__', 1)
-                                method = getattr(macros, key2)
-                                self._macros.append((domain_name, prop_name, method))
-                            except ValueError:
+                if not (hasattr(addon, 'disabled') and addon.disabled):
+                    if hasattr(addon, 'macros'):
+                        macros = getattr(addon, 'macros')
+                        for key2 in dir(macros):
+                            if not key2.startswith('_'):
+                                try:
+                                    domain_name, prop_name = key2.split('__', 1)
+                                    method = getattr(macros, key2)
+                                    self._macros.append((domain_name, prop_name, method))
+                                except ValueError:
+                                    pass
+                    if hasattr(addon, 'helpers'):
+                        addon_helpers = getattr(addon, 'helpers')
+                        if not hasattr(self.helpers, key):
+                            class module_helpers:
                                 pass
-                if hasattr(addon, 'helpers'):
-                    addon_helpers = getattr(addon, 'helpers')
-                    if not hasattr(self.helpers, key):
-                        class module_helpers:
-                            pass
-                        setattr(self.helpers, key, module_helpers)
-                    else:
-                        module_helpers = getattr(self.helpers, key)
-                    for key2 in dir(addon_helpers):
-                        if not key2.startswith('_'):
-                            if not hasattr(module_helpers, key2):
-                                setattr(module_helpers, key2, getattr(addon_helpers, key2))
-                            else:
-                                raise KeyError('Duplicating helper {0}.{1}'.format(key, key2))
-                if hasattr(addon, 'events'):
-                    self._callbacks_collection.append(getattr(addon, 'events'))
+                            setattr(self.helpers, key, module_helpers)
+                        else:
+                            module_helpers = getattr(self.helpers, key)
+                        for key2 in dir(addon_helpers):
+                            if not key2.startswith('_'):
+                                if not hasattr(module_helpers, key2):
+                                    setattr(module_helpers, key2, getattr(addon_helpers, key2))
+                                else:
+                                    raise KeyError('Duplicating helper {0}.{1}'.format(key, key2))
+                    if hasattr(addon, 'events'):
+                        self._callbacks_collection.append(getattr(addon, 'events'))
         self._initial_tabs = []
         try:
             initial_list = json.loads(call_method(self._host, self._port, 'list'))

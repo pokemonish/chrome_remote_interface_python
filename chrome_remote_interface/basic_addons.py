@@ -27,12 +27,6 @@ class targets:
             tab._emit_event('tab_suicide', reason='target_crashed')
 
 
-class mouse:
-    '''
-    
-    '''
-
-
 class KeysTuple:
     def __init__(self, code, key, text, unmodified_text, windows_virtual_key_code, native_virtual_key_code, is_system_key, is_keypad):
         self.code = code
@@ -469,8 +463,9 @@ keyboard.helpers.types = types()
 
 class dom:
     '''
-    DOM handling
+    DOM handling (decided to remove it for now, because it doesn't work properly)
     '''
+    disabled = True
     async def _load_dom_tree(tabs, tab, root):
         kv = {}
         async def extract(element):
