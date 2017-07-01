@@ -1,4 +1,4 @@
-import pyperclip, asyncio
+import pyperclip, asyncio, json
 
 class targets:
     '''
@@ -25,7 +25,6 @@ class targets:
         async def inspector__target_crashed(tabs, tab):
             await tab.close(force=True)
             tab._emit_event('tab_suicide', reason='target_crashed')
-
 
 class KeysTuple:
     def __init__(self, code, key, text, unmodified_text, windows_virtual_key_code, native_virtual_key_code, is_system_key, is_keypad):
@@ -458,9 +457,6 @@ class types(list):
         self.extend(filter(lambda x: not x.startswith('_') and x.isupper(), dir(self)))
 keyboard.helpers.types = types()
 
-
-
-
 class dom:
     '''
     DOM handling (decided to remove it for now, because it doesn't work properly)
@@ -596,8 +592,58 @@ class dom:
             async with tab.lock('dom'):
                 tab.dom_kv[insertionPointId].distributedNodes = distributedNodes
 
-
-
+class isolated_evaluate:
+    '''
+    Evaluate javascript in isolated world on frame navigate
+    '''
+    class macros:
+        async def Runtime__isolated_evaluate_on_frame_navigate(tabs, tab, code, world_name='default_world'):
+            if not hasattr(tab, '_code_for_frames'):
+                tab._code_for_frames = []
+                tab._execution_context_id_to_world_name = {}
+            tab._code_for_frames.append((code, world_name))
+        async def Runtime__isolated_evaluate_file_on_frame_navigate(tabs, tab, path, *args, **kwargs):
+            with open(path, 'r') as f:
+                code = f.read()
+                await tab.Runtime.isolated_evaluate_on_frame_navigate(code, *args, **kwargs)
+    class events:
+        async def tab_start(tabs, tab):
+            await tab.Page.enable()
+            await tab.Runtime.enable()
+        async def page__frame_navigated(tabs, tab, frame):
+            if hasattr(tab, '_code_for_frames'):
+                worlds = {}
+                for code, world_name in tab._code_for_frames:
+                    if world_name not in worlds:
+                        world = await tab.Page.create_isolated_world(frameId=frame.id, worldName=world_name, grantUniveralAccess=True)
+                        await tab.Runtime.evaluate(expression='''
+                            const send = function(value) {
+                                try {
+                                    console.log('OK_RESULT', JSON.stringify(value))
+                                } catch(e) {
+                                    console.error('FAIL_RESULT', `JSON decode error: ${e.toString()}`)
+                                }
+                            }
+                            ''', objectGroup='console', includeCommandLineAPI=True, silent=False, contextId=world, 
+                                 returnByValue=False, generatePreview=True, userGesture=True, awaitPromise=False)
+                        tab._execution_context_id_to_world_name[world] = world_name
+                        worlds[world_name] = world
+                    else:
+                        world = worlds[world_name]
+                    await tab.Runtime.evaluate(expression=code, objectGroup='console', includeCommandLineAPI=True,
+                                               silent=False, contextId=world, returnByValue=False,
+                                               generatePreview=True, userGesture=True, awaitPromise=False)
+        async def runtime__console_api_called(tabs, tab, type, args, executionContextId, **kwargs):
+            if hasattr(tab, '_code_for_frames') and executionContextId in tab._execution_context_id_to_world_name:
+                world_name = tab._execution_context_id_to_world_name[executionContextId]
+                if len(args) > 0 and args[0].type == 'string':
+                    status = args[0].value
+                    if status == 'OK_RESULT':
+                        value = json.loads(args[1].value)
+                        tab._emit_event('runtime__isolated_evaluate_callback', value=value, error=None, world_name=world_name)
+                    elif status == 'FAIL_RESULT':
+                        error = args[1].value
+                        tab._emit_event('runtime__isolated_evaluate_callback', value=None, error=error, world_name=world_name)
 
 class old_helpers:
     class helpers:
