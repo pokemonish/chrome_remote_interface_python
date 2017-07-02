@@ -624,15 +624,33 @@ class isolated_evaluate:
                                     console.error('FAIL_RESULT', `JSON decode error: ${e.toString()}`)
                                 }
                             }
+                            const trace = function(value) {
+                                if('stack' in value) {
+                                    try {
+                                        send(value.stack)
+                                        return
+                                    } catch(e) {}
+                                }
+                                try {
+                                    send(value.toString())
+                                    return
+                                } catch(e) {}
+                                send('Uncaught unknown error')
+                            }
                             ''', objectGroup='console', includeCommandLineAPI=True, silent=False, contextId=world, 
                                  returnByValue=False, generatePreview=True, userGesture=True, awaitPromise=False)
                         tab._execution_context_id_to_world_name[world] = world_name
                         worlds[world_name] = world
                     else:
                         world = worlds[world_name]
-                    await tab.Runtime.evaluate(expression=code, objectGroup='console', includeCommandLineAPI=True,
-                                               silent=False, contextId=world, returnByValue=False,
-                                               generatePreview=True, userGesture=True, awaitPromise=False)
+                    info = await tab.Runtime.evaluate(expression=code, objectGroup='console', includeCommandLineAPI=True,
+                                                      silent=False, contextId=world, returnByValue=False,
+                                                      generatePreview=True, userGesture=True, awaitPromise=False)
+                    if 'exceptionDetails' in info:
+                        details = info['exceptionDetails']
+                        if details is not None:
+                            raise RuntimeError('{0} {1} at line {2} column {3}'.format(details.text, details.exception.description, 
+                                                                                       details.lineNumber, details.columnNumber))
         async def runtime__console_api_called(tabs, tab, type, args, executionContextId, **kwargs):
             if hasattr(tab, '_code_for_frames') and executionContextId in tab._execution_context_id_to_world_name:
                 world_name = tab._execution_context_id_to_world_name[executionContextId]
