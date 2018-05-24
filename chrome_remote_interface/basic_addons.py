@@ -1,4 +1,4 @@
-import pyperclip, asyncio, json
+import pyperclip, asyncio, json, base64
 
 class targets:
     '''
