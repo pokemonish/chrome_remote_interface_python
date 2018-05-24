@@ -597,25 +597,47 @@ class isolated_evaluate:
     Evaluate javascript in isolated world on frame navigate
     '''
     class macros:
-        async def Runtime__isolated_evaluate_on_frame_navigate(tabs, tab, code, world_name='default_world'):
-            if not hasattr(tab, '_code_for_frames'):
-                tab._code_for_frames = []
+        async def __evaluate_on_frame(tabs, tab, code, world_name, keyword):
+            if not hasattr(tab, keyword):
+                setattr(tab, keyword, [])
+            if not hasattr(tab, '_execution_context_id_to_world_name'):
                 tab._execution_context_id_to_world_name = {}
-            tab._code_for_frames.append((code, world_name))
+            getattr(tab, keyword).append((code, world_name))
+        @classmethod
+        async def Runtime__isolated_evaluate_on_frame_navigate(cls, tabs, tab, code, world_name='default_world'):
+            return await cls.__evaluate_on_frame(tabs, tab, code, world_name, '_code_for_frame_navigate')
         async def Runtime__isolated_evaluate_file_on_frame_navigate(tabs, tab, path, *args, **kwargs):
             with open(path, 'r') as f:
                 code = f.read()
-                await tab.Runtime.isolated_evaluate_on_frame_navigate(code, *args, **kwargs)
+                return await tab.Runtime.isolated_evaluate_on_frame_navigate(code, world_name, *args, **kwargs)
+        @classmethod
+        async def Runtime__isolated_evaluate_on_frame_stopped_loading(cls, tabs, tab, code, world_name='default_world'):
+            return await cls.__evaluate_on_frame(tabs, tab, code, world_name, '_code_for_frame_stopped_loading')
+        async def Runtime__isolated_evaluate_file_on_frame_stopped_loading(tabs, tab, path, *args, **kwargs):
+            with open(path, 'r') as f:
+                code = f.read()
+                return await tab.Runtime.isolated_evaluate_on_frame_stopped_loading(code, world_name, *args, **kwargs)
     class events:
         async def tab_start(tabs, tab):
             await tab.Page.enable()
             await tab.Runtime.enable()
-        async def page__frame_navigated(tabs, tab, frame):
-            if hasattr(tab, '_code_for_frames'):
+        async def runtime__console_api_called(tabs, tab, type, args, executionContextId, **kwargs):
+            if hasattr(tab, '_execution_context_id_to_world_name') and executionContextId in tab._execution_context_id_to_world_name:
+                world_name = tab._execution_context_id_to_world_name[executionContextId]
+                if len(args) > 0 and args[0].type == 'string':
+                    status = args[0].value
+                    if status == 'OK_RESULT':
+                        value = json.loads(args[1].value)
+                        tab._emit_event('runtime__isolated_evaluate_callback', value=value, error=None, world_name=world_name)
+                    elif status == 'FAIL_RESULT':
+                        error = args[1].value
+                        tab._emit_event('runtime__isolated_evaluate_callback', value=None, error=error, world_name=world_name)
+        async def __frame(tabs, tab, frameId, keyword):
+            if hasattr(tab, keyword):
                 worlds = {}
-                for code, world_name in tab._code_for_frames:
+                for code, world_name in getattr(tab, keyword):
                     if world_name not in worlds:
-                        world = await tab.Page.create_isolated_world(frameId=frame.id, worldName=world_name, grantUniveralAccess=True)
+                        world = await tab.Page.create_isolated_world(frameId=frameId, worldName=world_name, grantUniveralAccess=True)
                         await tab.Runtime.evaluate(expression='''
                             const send = function(value) {
                                 try {
@@ -651,17 +673,12 @@ class isolated_evaluate:
                         if details is not None:
                             raise RuntimeError('{0} {1} at line {2} column {3}'.format(details.text, details.exception.description, 
                                                                                        details.lineNumber, details.columnNumber))
-        async def runtime__console_api_called(tabs, tab, type, args, executionContextId, **kwargs):
-            if hasattr(tab, '_code_for_frames') and executionContextId in tab._execution_context_id_to_world_name:
-                world_name = tab._execution_context_id_to_world_name[executionContextId]
-                if len(args) > 0 and args[0].type == 'string':
-                    status = args[0].value
-                    if status == 'OK_RESULT':
-                        value = json.loads(args[1].value)
-                        tab._emit_event('runtime__isolated_evaluate_callback', value=value, error=None, world_name=world_name)
-                    elif status == 'FAIL_RESULT':
-                        error = args[1].value
-                        tab._emit_event('runtime__isolated_evaluate_callback', value=None, error=error, world_name=world_name)
+        @classmethod
+        async def page__frame_navigated(cls, tabs, tab, frame):
+            return await cls.__frame(tabs, tab, frame.id, '_code_for_frame_navigate')
+        @classmethod
+        async def page__frame_stopped_loading(cls, tabs, tab, frameId):
+            return await cls.__frame(tabs, tab, frameId, '_code_for_frame_stopped_loading')
 
 class old_helpers:
     class helpers:
