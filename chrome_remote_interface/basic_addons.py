@@ -7,7 +7,7 @@ class targets:
     class events:
         async def tab_start(tabs, tab):
             await tab.Target.set_discover_targets(True)
-            await tab.Page.set_auto_attach_to_created_pages(True)
+            # await tab.Page.set_auto_attach_to_created_pages(True)
             await tab.Inspector.enable()
         async def target__target_created(tabs, tab, targetInfo, **kwargs):
             if targetInfo.type != 'browser' and targetInfo.targetId not in tabs._initial_tabs and targetInfo.targetId not in tabs._tabs:
