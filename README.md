@@ -31,7 +31,7 @@ if __name__ == '__main__':
             await tab.Page.navigate(url='http://github.com')
         async def network__loading_finished(tabs, tab, requestId, **kwargs):
             try:
-                body = tabs.helpers.unpack_response_body(await tab.Network.get_response_body(requestId=requestId))
+                body = tabs.helpers.old_helpers.unpack_response_body(await tab.Network.get_response_body(requestId=requestId))
                 print('body length:', len(body))
             except tabs.FailResponse as e:
                 print('fail:', e)
